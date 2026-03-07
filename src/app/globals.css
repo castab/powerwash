@@ -1,26 +1,108 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f4f1e8;
+  --foreground: #152129;
+  --surface: #fffdf9;
+  --surface-strong: #f7f0e0;
+  --card: #ffffff;
+  --line: rgba(21, 33, 41, 0.12);
+  --muted: #66757f;
+  --brand: #0e7490;
+  --brand-strong: #155e75;
+  --accent: #f59e0b;
+  --danger: #b91c1c;
+  --success: #166534;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --font-sans: "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-mono: "Consolas", "SFMono-Regular", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  min-height: 100vh;
+}
+
+body::before {
+  background:
+    radial-gradient(circle at top left, rgba(14, 116, 144, 0.16), transparent 32%),
+    radial-gradient(circle at right 20%, rgba(245, 158, 11, 0.12), transparent 28%);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+a,
+button,
+input,
+select,
+textarea {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+::selection {
+  background: rgba(14, 116, 144, 0.2);
+}
+
+.shell {
+  @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+}
+
+.panel {
+  @apply rounded-[28px] border border-line bg-card shadow-[0_18px_50px_rgba(21,33,41,0.08)];
+}
+
+.field {
+  @apply w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-foreground outline-none ring-0 placeholder:text-muted focus:border-brand focus:shadow-[0_0_0_4px_rgba(14,116,144,0.12)];
+}
+
+.button-primary {
+  @apply inline-flex items-center justify-center rounded-full bg-brand px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(14,116,144,0.18)] hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0;
+}
+
+.button-secondary {
+  @apply inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-semibold text-foreground hover:-translate-y-0.5 hover:bg-surface;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full border border-line bg-surface px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted;
+}
+
+.section-title {
+  @apply text-2xl font-semibold tracking-tight text-foreground sm:text-3xl;
+}
+
+.stack {
+  @apply flex flex-col gap-4;
 }

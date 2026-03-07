@@ -1,64 +1,86 @@
-import Image from "next/image";
+import Link from "next/link";
+import { getPublicServices } from "@/lib/booking";
+import { formatCurrency } from "@/lib/utils";
+import { SiteHeader } from "@/components/layout/site-header";
+import { ServiceCard } from "@/components/home/service-card";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const services = await getPublicServices();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className="pb-10">
+      <SiteHeader />
+      <main className="shell stack py-4 sm:py-8">
+        <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="panel overflow-hidden p-6 sm:p-8">
+            <p className="badge">Mobile-first booking</p>
+            <h1 className="mt-4 max-w-xl text-4xl font-semibold tracking-tight sm:text-5xl">
+              Reserve a premium car wash in under two minutes.
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-muted sm:text-base">
+              Customers book from open availability, pay only the required deposit online, and
+              finish the remaining balance in person. Admins manage services, schedules, blackout
+              windows, and booking updates from one monolithic dashboard.
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <Link className="button-primary" href="/book">
+                Start booking
+              </Link>
+              <Link className="button-secondary" href="/admin">
+                Open admin dashboard
+              </Link>
+            </div>
+          </div>
+
+          <div className="panel p-6">
+            <p className="badge">Booking terms</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3 sm:gap-3">
+              <div className="rounded-[24px] bg-surface p-4">
+                <p className="text-sm text-muted">Services</p>
+                <p className="mt-2 text-2xl font-semibold">{services.length}</p>
+              </div>
+              <div className="rounded-[24px] bg-surface p-4">
+                <p className="text-sm text-muted">Typical deposit</p>
+                <p className="mt-2 text-2xl font-semibold">
+                  {services[0] ? formatCurrency(services[0].depositAmount) : "$0.00"}
+                </p>
+              </div>
+              <div className="rounded-[24px] bg-surface p-4">
+                <p className="text-sm text-muted">Balance collection</p>
+                <p className="mt-2 text-2xl font-semibold">In person</p>
+              </div>
+            </div>
+            <div className="mt-6 rounded-[28px] border border-dashed border-line bg-white p-5">
+              <p className="text-sm font-semibold">What this starter includes</p>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
+                <li>Next.js App Router with server actions and route handlers</li>
+                <li>PostgreSQL + Prisma with overlap protection in SQL and logic</li>
+                <li>Stripe Checkout deposit flow plus webhook confirmation</li>
+                <li>Secure admin login and operational dashboard</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section className="stack" id="services">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="badge">Service menu</p>
+              <h2 className="section-title mt-3">Browse active services</h2>
+            </div>
+            <Link className="button-secondary" href="/book">
+              Book from schedule
+            </Link>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {services.map((service) => (
+              <ServiceCard key={service.id} service={service} />
+            ))}
+          </div>
+        </section>
       </main>
     </div>
   );

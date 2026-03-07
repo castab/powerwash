@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+model Service {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  description     String?
+  durationMinutes Int
+  basePrice       Int
+  depositAmount   Int
+  isActive        Boolean   @default(true)
+  bookings        Booking[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Customer {
+  id         String    @id @default(cuid())
+  firstName  String
+  lastName   String
+  email      String
+  phone      String
+  notes      String?
+  vehicles   Vehicle[]
+  bookings   Booking[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Vehicle {
+  id           String    @id @default(cuid())
+  customerId   String
+  year         Int?
+  make         String
+  model        String
+  color        String?
+  licensePlate String?
+  notes        String?
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Booking {
+  id                      String        @id @default(cuid())
+  serviceId               String
+  customerId              String
+  vehicleId               String
+  startAt                 DateTime
+  endAt                   DateTime
+  status                  BookingStatus @default(PENDING_PAYMENT)
+  paymentStatus           PaymentStatus @default(PENDING)
+  totalPrice              Int
+  depositAmount           Int
+  balanceDue              Int
+  stripeCheckoutSessionId String?       @unique
+  stripePaymentIntentId   String?       @unique
+  notes                   String?
+  adminNotes              String?
+  paymentExpiresAt        DateTime?
+  confirmedAt             DateTime?
+  cancelledAt             DateTime?
+  service                 Service       @relation(fields: [serviceId], references: [id])
+  customer                Customer      @relation(fields: [customerId], references: [id])
+  vehicle                 Vehicle       @relation(fields: [vehicleId], references: [id])
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+
+  @@index([startAt, endAt])
+  @@index([status, paymentStatus])
+}
+
+model AvailabilityRule {
+  id        String   @id @default(cuid())
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dayOfWeek, isActive])
+}
+
+model BlackoutDate {
+  id        String   @id @default(cuid())
+  startsAt  DateTime
+  endsAt    DateTime
+  reason    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startsAt, endsAt, isActive])
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

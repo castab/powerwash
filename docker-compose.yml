@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: powerwash-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: powerwash
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d powerwash"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: node:24-bookworm-slim
+    container_name: powerwash-app
+    restart: unless-stopped
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/powerwash?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@db:5432/powerwash?schema=public
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - app_node_modules:/app/node_modules
+      - app_next:/app/.next
+    command: >
+      sh -c "npm install &&
+      npm run prisma:generate &&
+      npm run prisma:migrate &&
+      npm run prisma:seed &&
+      npm run dev:docker"
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:
+  app_node_modules:
+  app_next:
