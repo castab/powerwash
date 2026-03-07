@@ -1,0 +1,13 @@
+.git
+.gitignore
+.next
+.docker-config
+node_modules
+npm-debug.log*
+.env
+.env.local
+.env.development
+.env.production
+docker-compose.yml
+coverage
+*.tsbuildinfo

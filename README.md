@@ -117,6 +117,7 @@ What it does:
 - Runs `prisma migrate deploy` automatically before starting the dev server
 - Runs the Prisma seed script automatically so the default admin account exists
 - Uses webpack dev mode in Docker because file watching is more reliable than Turbopack on Windows bind mounts
+- Is intended for local development only, not Railway production deployment
 
 Before first run:
 
@@ -187,33 +188,88 @@ https://your-domain.com/api/stripe/webhook
 
 ## Railway Deployment
 
-Recommended Railway setup:
+Railway deployment is Dockerfile-based and should use the production [Dockerfile](h:\GitHub\powerwash\Dockerfile), not the local [docker-compose.yml](h:\GitHub\powerwash\docker-compose.yml).
+
+### Deployment files
+
+- [Dockerfile](h:\GitHub\powerwash\Dockerfile): production image build for Railway
+- [.dockerignore](h:\GitHub\powerwash\.dockerignore): excludes local-only files from the Docker build context
+- [scripts/start.sh](h:\GitHub\powerwash\scripts\start.sh): runtime orchestration for env validation, migrations, seed-once, and app startup
+- [scripts/check-bootstrap.mjs](h:\GitHub\powerwash\scripts\check-bootstrap.mjs): database sentinel check used to decide whether bootstrap seeding is needed
+
+### Runtime contract
+
+Every Railway container start performs this sequence:
+
+1. Validate required environment variables.
+2. Ensure Prisma client is available.
+3. Run `prisma migrate deploy`.
+4. Check whether any `AdminUser` records exist.
+5. Run the seed script only if no admin users exist.
+6. Start the app with `next start`.
+
+This means:
+
+- migrations run on every app start
+- bootstrap seed runs only once for an empty database
+- later restarts skip seeding automatically
+
+### Railway setup
 
 1. Create a new Railway project.
 2. Add a PostgreSQL service.
-3. Deploy this app service from the repo.
-4. Set the app environment variables from the table above.
-5. Map:
+3. Create the app service from this repo.
+4. In the Railway service settings, deploy using the repo Dockerfile.
+5. Set the environment variables from the table above.
+6. Map:
    - `DATABASE_URL` to Railway PostgreSQL `DATABASE_URL`
    - `DIRECT_URL` to Railway PostgreSQL `DATABASE_PRIVATE_URL` if available, otherwise `DATABASE_URL`
-6. Configure the build and start commands:
+7. Trigger the first deploy.
+
+### Required environment variables for Railway
+
+These must be present for startup to succeed:
+
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `NEXT_PUBLIC_APP_URL`
+- `ADMIN_SESSION_SECRET`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+Optional bootstrap env vars:
+
+- `SEED_ADMIN_EMAIL`
+- `SEED_ADMIN_PASSWORD`
+
+### Expected deploy logs
+
+On a first deploy against an empty database, Railway logs should show messages like:
 
 ```text
-Build: npm install && npm run build
-Start: npm run start
+[railway-start] Validating environment
+[railway-start] Running database migrations
+[railway-start] Checking bootstrap data
+[railway-start] Bootstrap data missing, running seed
+[railway-start] Starting Next.js
 ```
 
-7. Run migrations during deployment:
+On later restarts, logs should show:
 
 ```text
-npm run prisma:migrate
+[railway-start] Checking bootstrap data
+[railway-start] Bootstrap data already present, skipping seed
 ```
 
-8. Seed once after the first successful deployment:
+### Manual reseed or recovery
+
+If you ever need to reseed intentionally, use a Railway shell or one-off command after clearing the relevant bootstrap data:
 
 ```text
 npm run prisma:seed
 ```
+
+Because startup uses `AdminUser` existence as the seed sentinel, automatic seed will not rerun while admin users remain present.
 
 ## Admin Auth
 

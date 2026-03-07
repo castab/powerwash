@@ -7,12 +7,14 @@
     "dev:docker": "next dev --webpack --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start",
+    "start:railway": "sh ./scripts/start.sh",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:dev": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "seed:check": "node ./scripts/check-bootstrap.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.18.0",
