@@ -9,6 +9,7 @@ import {
 } from "date-fns";
 import { BookingStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { subtractMoney } from "@/lib/utils";
 
 const SLOT_INTERVAL_MINUTES = 15;
 const HOLD_MINUTES = 30;
@@ -226,7 +227,7 @@ export async function createHeldBooking(input: {
             endAt,
             totalPrice: service.basePrice,
             depositAmount: service.depositAmount,
-            balanceDue: service.basePrice - service.depositAmount,
+            balanceDue: subtractMoney(service.basePrice, service.depositAmount),
             notes: input.notes,
             status: BookingStatus.PENDING_PAYMENT,
             paymentStatus: PaymentStatus.PENDING,

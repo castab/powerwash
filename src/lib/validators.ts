@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+const moneySchema = z
+  .union([z.string(), z.number()])
+  .transform((value) => {
+    const raw = typeof value === "number" ? String(value) : value.trim();
+    return raw.replace(/[$,\s]/g, "");
+  })
+  .refine((value) => value.length > 0, {
+    message: "Enter a dollar amount.",
+  })
+  .refine((value) => Number.isFinite(Number(value)), {
+    message: "Enter a valid dollar amount.",
+  })
+  .transform((value) => Number(value).toFixed(2))
+  .refine((value) => Number(value) >= 0, {
+    message: "Amount must be zero or greater.",
+  });
+
 export const bookingSchema = z.object({
   serviceId: z.string().min(1, "Select a service."),
   date: z.string().min(1, "Choose a date."),
@@ -32,8 +49,8 @@ export const serviceSchema = z.object({
   name: z.string().min(3),
   description: z.string().max(500).optional(),
   durationMinutes: z.coerce.number().int().min(15).max(480),
-  basePrice: z.coerce.number().int().min(500),
-  depositAmount: z.coerce.number().int().min(100),
+  basePrice: moneySchema,
+  depositAmount: moneySchema,
   isActive: z.coerce.boolean().default(true),
 });
 

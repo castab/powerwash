@@ -30,8 +30,8 @@ model Service {
   slug            String    @unique
   description     String?
   durationMinutes Int
-  basePrice       Int
-  depositAmount   Int
+  basePrice       Decimal   @db.Decimal(10, 2)
+  depositAmount   Decimal   @db.Decimal(10, 2)
   isActive        Boolean   @default(true)
   bookings        Booking[]
   createdAt       DateTime  @default(now())
@@ -75,9 +75,9 @@ model Booking {
   endAt                   DateTime
   status                  BookingStatus @default(PENDING_PAYMENT)
   paymentStatus           PaymentStatus @default(PENDING)
-  totalPrice              Int
-  depositAmount           Int
-  balanceDue              Int
+  totalPrice              Decimal       @db.Decimal(10, 2)
+  depositAmount           Decimal       @db.Decimal(10, 2)
+  balanceDue              Decimal       @db.Decimal(10, 2)
   stripeCheckoutSessionId String?       @unique
   stripePaymentIntentId   String?       @unique
   notes                   String?

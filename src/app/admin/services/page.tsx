@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { saveServiceAction } from "@/server/actions/admin";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { formatMoneyInput } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +19,48 @@ export default async function AdminServicesPage() {
       <section className="panel p-5">
         <h2 className="text-lg font-semibold">Create service</h2>
         <form action={saveServiceAction} className="mt-4 grid gap-4 md:grid-cols-2">
-          <input className="field md:col-span-2" name="name" placeholder="Interior refresh" />
-          <textarea
-            className="field min-h-28 resize-y md:col-span-2"
-            name="description"
-            placeholder="Service description"
-          />
-          <input className="field" min="15" name="durationMinutes" placeholder="Duration (minutes)" type="number" />
-          <input className="field" min="500" name="basePrice" placeholder="Base price in cents" type="number" />
-          <input className="field" min="100" name="depositAmount" placeholder="Deposit in cents" type="number" />
+          <label className="stack md:col-span-2">
+            <span className="text-sm font-medium">Service name</span>
+            <input className="field" name="name" placeholder="Interior refresh" />
+          </label>
+          <label className="stack md:col-span-2">
+            <span className="text-sm font-medium">Description</span>
+            <textarea
+              className="field min-h-28 resize-y"
+              name="description"
+              placeholder="Service description"
+            />
+          </label>
+          <label className="stack">
+            <span className="text-sm font-medium">Duration (minutes)</span>
+            <input className="field" min="15" name="durationMinutes" placeholder="90" type="number" />
+          </label>
+          <label className="stack">
+            <span className="text-sm font-medium">Base price (USD)</span>
+            <input
+              className="field"
+              inputMode="decimal"
+              min="0"
+              name="basePrice"
+              placeholder="85.00"
+              step="0.01"
+              type="number"
+            />
+            <span className="text-xs text-muted">Enter the full service price in dollars.</span>
+          </label>
+          <label className="stack">
+            <span className="text-sm font-medium">Required deposit (USD)</span>
+            <input
+              className="field"
+              inputMode="decimal"
+              min="0"
+              name="depositAmount"
+              placeholder="25.00"
+              step="0.01"
+              type="number"
+            />
+            <span className="text-xs text-muted">Deposit is charged online; balance is paid in person.</span>
+          </label>
           <label className="flex items-center gap-3 text-sm font-medium">
             <input defaultChecked name="isActive" type="checkbox" />
             Active service
@@ -39,11 +73,48 @@ export default async function AdminServicesPage() {
         {services.map((service) => (
           <form action={saveServiceAction} className="panel grid gap-4 p-5 md:grid-cols-2" key={service.id}>
             <input name="id" type="hidden" value={service.id} />
-            <input className="field md:col-span-2" defaultValue={service.name} name="name" />
-            <textarea className="field min-h-24 resize-y md:col-span-2" defaultValue={service.description ?? ""} name="description" />
-            <input className="field" defaultValue={service.durationMinutes} name="durationMinutes" type="number" />
-            <input className="field" defaultValue={service.basePrice} name="basePrice" type="number" />
-            <input className="field" defaultValue={service.depositAmount} name="depositAmount" type="number" />
+            <label className="stack md:col-span-2">
+              <span className="text-sm font-medium">Service name</span>
+              <input className="field" defaultValue={service.name} name="name" />
+            </label>
+            <label className="stack md:col-span-2">
+              <span className="text-sm font-medium">Description</span>
+              <textarea
+                className="field min-h-24 resize-y"
+                defaultValue={service.description ?? ""}
+                name="description"
+              />
+            </label>
+            <label className="stack">
+              <span className="text-sm font-medium">Duration (minutes)</span>
+              <input className="field" defaultValue={service.durationMinutes} name="durationMinutes" type="number" />
+            </label>
+            <label className="stack">
+              <span className="text-sm font-medium">Base price (USD)</span>
+              <input
+                className="field"
+                defaultValue={formatMoneyInput(service.basePrice)}
+                inputMode="decimal"
+                min="0"
+                name="basePrice"
+                step="0.01"
+                type="number"
+              />
+              <span className="text-xs text-muted">Stored in dollars and rounded to the nearest cent.</span>
+            </label>
+            <label className="stack">
+              <span className="text-sm font-medium">Required deposit (USD)</span>
+              <input
+                className="field"
+                defaultValue={formatMoneyInput(service.depositAmount)}
+                inputMode="decimal"
+                min="0"
+                name="depositAmount"
+                step="0.01"
+                type="number"
+              />
+              <span className="text-xs text-muted">Must be less than or equal to the base price.</span>
+            </label>
             <label className="flex items-center gap-3 text-sm font-medium">
               <input defaultChecked={service.isActive} name="isActive" type="checkbox" />
               Active

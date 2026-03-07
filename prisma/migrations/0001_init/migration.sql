@@ -22,8 +22,8 @@ CREATE TABLE "Service" (
   "slug" TEXT NOT NULL,
   "description" TEXT,
   "durationMinutes" INTEGER NOT NULL,
-  "basePrice" INTEGER NOT NULL,
-  "depositAmount" INTEGER NOT NULL,
+  "basePrice" NUMERIC(10,2) NOT NULL,
+  "depositAmount" NUMERIC(10,2) NOT NULL,
   "isActive" BOOLEAN NOT NULL DEFAULT true,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -65,9 +65,9 @@ CREATE TABLE "Booking" (
   "endAt" TIMESTAMP(3) NOT NULL,
   "status" "BookingStatus" NOT NULL DEFAULT 'PENDING_PAYMENT',
   "paymentStatus" "PaymentStatus" NOT NULL DEFAULT 'PENDING',
-  "totalPrice" INTEGER NOT NULL,
-  "depositAmount" INTEGER NOT NULL,
-  "balanceDue" INTEGER NOT NULL,
+  "totalPrice" NUMERIC(10,2) NOT NULL,
+  "depositAmount" NUMERIC(10,2) NOT NULL,
+  "balanceDue" NUMERIC(10,2) NOT NULL,
   "stripeCheckoutSessionId" TEXT,
   "stripePaymentIntentId" TEXT,
   "notes" TEXT,
@@ -146,6 +146,24 @@ ALTER TABLE "Booking"
 ALTER TABLE "Booking"
   ADD CONSTRAINT "booking_valid_range"
   CHECK ("endAt" > "startAt");
+
+ALTER TABLE "Service"
+  ADD CONSTRAINT "service_price_values"
+  CHECK (
+    "basePrice" >= 0.00 AND
+    "depositAmount" >= 0.00 AND
+    "depositAmount" <= "basePrice"
+  );
+
+ALTER TABLE "Booking"
+  ADD CONSTRAINT "booking_money_values"
+  CHECK (
+    "totalPrice" >= 0.00 AND
+    "depositAmount" >= 0.00 AND
+    "balanceDue" >= 0.00 AND
+    "depositAmount" <= "totalPrice" AND
+    "balanceDue" = ROUND("totalPrice" - "depositAmount", 2)
+  );
 
 ALTER TABLE "Booking"
   ADD CONSTRAINT "booking_no_overlap"

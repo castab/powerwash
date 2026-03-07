@@ -13,7 +13,7 @@ import {
   bookingAdminUpdateSchema,
   serviceSchema,
 } from "@/lib/validators";
-import { slugify } from "@/lib/utils";
+import { slugify, toMoneyDecimal } from "@/lib/utils";
 
 export async function loginAdminAction(_state: { error?: string }, formData: FormData) {
   const parsed = adminLoginSchema.safeParse({
@@ -67,7 +67,10 @@ export async function saveServiceAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid service.");
   }
 
-  if (parsed.data.depositAmount > parsed.data.basePrice) {
+  const basePrice = toMoneyDecimal(parsed.data.basePrice);
+  const depositAmount = toMoneyDecimal(parsed.data.depositAmount);
+
+  if (depositAmount.gt(basePrice)) {
     throw new Error("Deposit cannot exceed the total price.");
   }
 
@@ -75,8 +78,8 @@ export async function saveServiceAction(formData: FormData) {
     name: parsed.data.name,
     description: parsed.data.description,
     durationMinutes: parsed.data.durationMinutes,
-    basePrice: parsed.data.basePrice,
-    depositAmount: parsed.data.depositAmount,
+    basePrice,
+    depositAmount,
     isActive: parsed.data.isActive,
     slug: slugify(parsed.data.name),
   };

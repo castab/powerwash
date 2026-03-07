@@ -234,6 +234,6 @@ npm run prisma:seed
 
 ## Notes
 
-- Currency values are stored as integer cents.
+- Currency values are stored as dollar decimals with cent precision.
 - The current implementation assumes a single service bay. If the business later needs multiple simultaneous bays, add a resource dimension to `Booking` and the exclusion constraint.
 - PWA support is intentionally minimal to keep the core booking flow prioritized.

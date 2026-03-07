@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
+import { formatCurrency, toStripeCents } from "@/lib/utils";
 
 export type BookingActionState = {
   status: "idle" | "error";
@@ -58,12 +59,10 @@ export async function createBookingCheckoutAction(
           quantity: 1,
           price_data: {
             currency: "usd",
-            unit_amount: booking.depositAmount,
+            unit_amount: toStripeCents(booking.depositAmount),
             product_data: {
               name: `${booking.service.name} deposit`,
-              description: `Remaining balance due in person: $${(
-                booking.balanceDue / 100
-              ).toFixed(2)}`,
+              description: `Remaining balance due in person: ${formatCurrency(booking.balanceDue)}`,
             },
           },
         },
