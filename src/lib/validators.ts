@@ -19,6 +19,7 @@ const moneySchema = z
 
 export const bookingSchema = z.object({
   serviceId: z.string().min(1, "Select a service."),
+  date: z.string().min(1, "Choose a date."),
   startAt: z
     .string()
     .min(1, "Choose a time.")

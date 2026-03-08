@@ -13,12 +13,23 @@ export type BookingActionState = {
   message: string;
 };
 
+function isRedirectError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof error.digest === "string" &&
+    error.digest.startsWith("NEXT_REDIRECT")
+  );
+}
+
 export async function createBookingCheckoutAction(
   _prevState: BookingActionState,
   formData: FormData,
 ): Promise<BookingActionState> {
   const parsed = bookingSchema.safeParse({
     serviceId: formData.get("serviceId"),
+    date: formData.get("date"),
     startAt: formData.get("startAt"),
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
@@ -43,6 +54,7 @@ export async function createBookingCheckoutAction(
     const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
+      startAtIso: parsed.data.startAt,
       startAt,
     });
 
@@ -77,6 +89,10 @@ export async function createBookingCheckoutAction(
 
     redirect(session.url ?? `${env.appUrl}/booking/confirmation`);
   } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
     return {
       status: "error",
       message:

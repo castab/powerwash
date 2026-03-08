@@ -125,13 +125,15 @@ export async function getAvailableSlots(serviceId: string, dateInput: string) {
   return slots;
 }
 
-export async function ensureBookableSlot(serviceId: string, startAt: Date) {
-  const slots = await getAvailableSlots(serviceId, format(startAt, "yyyy-MM-dd"));
-  return slots.some((slot) => slot.startAt === startAt.toISOString());
+export async function ensureBookableSlot(serviceId: string, dateInput: string, startAtIso: string) {
+  const slots = await getAvailableSlots(serviceId, dateInput);
+  return slots.some((slot) => slot.startAt === startAtIso);
 }
 
 export async function createHeldBooking(input: {
   serviceId: string;
+  date: string;
+  startAtIso: string;
   startAt: Date;
   firstName: string;
   lastName: string;
@@ -152,7 +154,7 @@ export async function createHeldBooking(input: {
     throw new Error("Service is no longer available.");
   }
 
-  const slotIsAvailable = await ensureBookableSlot(input.serviceId, input.startAt);
+  const slotIsAvailable = await ensureBookableSlot(input.serviceId, input.date, input.startAtIso);
   if (!slotIsAvailable) {
     throw new Error("Selected time is no longer available.");
   }
