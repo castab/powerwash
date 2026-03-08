@@ -141,6 +141,32 @@ function buildRefundedCancellationEmail(booking: ManagedBooking) {
   };
 }
 
+function buildAdminRefundedCancellationEmail(booking: ManagedBooking) {
+  const serviceDate = formatBookingDateTime(booking.startAt);
+
+  return {
+    subject: `Your ${booking.service.name} deposit refund was issued`,
+    text: [
+      `Hi ${booking.customer.firstName},`,
+      "",
+      `The deposit refund for your canceled ${booking.service.name} booking on ${serviceDate} has been issued.`,
+      `Refund amount: ${formatCurrency(booking.refundAmount ?? booking.depositAmount)}`,
+      "Depending on your bank, it may take a few business days for the refund to appear.",
+      "",
+      getSupportCopy(),
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${booking.customer.firstName},</p>
+        <p>The deposit refund for your canceled <strong>${booking.service.name}</strong> booking on <strong>${serviceDate}</strong> has been issued.</p>
+        <p>Refund amount: <strong>${formatCurrency(booking.refundAmount ?? booking.depositAmount)}</strong></p>
+        <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
+        <p>${getSupportCopy()}</p>
+      </div>
+    `,
+  };
+}
+
 function buildManualCancellationEmail(booking: ManagedBooking) {
   const serviceDate = formatBookingDateTime(booking.startAt);
   const env = getEnv();
@@ -240,7 +266,7 @@ export function getSupportEmail() {
 
 export async function sendCancellationOutcomeEmail(
   bookingId: string,
-  outcome: "cancelled_refunded" | "cancelled_contact_admin",
+  outcome: "cancelled_refunded" | "cancelled_contact_admin" | "admin_refunded",
 ) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -254,7 +280,9 @@ export async function sendCancellationOutcomeEmail(
   const email =
     outcome === "cancelled_refunded"
       ? buildRefundedCancellationEmail(booking)
-      : buildManualCancellationEmail(booking);
+      : outcome === "admin_refunded"
+        ? buildAdminRefundedCancellationEmail(booking)
+        : buildManualCancellationEmail(booking);
 
   await sendEmail({
     to: booking.customer.email,

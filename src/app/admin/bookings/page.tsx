@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { getUpcomingBookings } from "@/lib/booking";
 import { formatCurrency } from "@/lib/utils";
-import { updateBookingAction } from "@/server/actions/admin";
+import { issueBookingRefundAction, updateBookingAction } from "@/server/actions/admin";
 import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +88,18 @@ export default async function AdminBookingsPage() {
                   className="rounded-[24px] border border-line bg-surface p-4"
                   key={booking.id}
                 >
+                  {booking.status === "CANCELLED" &&
+                  booking.paymentStatus === "PAID" &&
+                  booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" ? (
+                    <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                      <p className="font-semibold">Late cancellation awaiting refund decision</p>
+                      <p className="mt-1">
+                        This booking was canceled inside 24 hours. The deposit is still marked as
+                        paid until an admin issues the refund.
+                      </p>
+                    </div>
+                  ) : null}
+
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 space-y-1 text-sm">
                       <p className="font-semibold">
@@ -101,29 +113,49 @@ export default async function AdminBookingsPage() {
                         Deposit {formatCurrency(booking.depositAmount)}, balance due{" "}
                         {formatCurrency(booking.balanceDue)}
                       </p>
+                      {booking.paymentStatus === "REFUNDED" && booking.refundedAt ? (
+                        <p className="text-muted">
+                          Refund issued {formatCurrency(booking.refundAmount ?? 0)} on{" "}
+                          {format(booking.refundedAt, "MMM d, h:mm a")}
+                        </p>
+                      ) : null}
                     </div>
-                    <form action={updateBookingAction} className="grid min-w-0 gap-3 lg:min-w-80">
-                      <input name="bookingId" type="hidden" value={booking.id} />
-                      <input
-                        className="field"
-                        defaultValue={booking.startAt.toISOString().slice(0, 16)}
-                        name="startAt"
-                        type="datetime-local"
-                      />
-                      <select className="field" defaultValue={booking.status} name="status">
-                        <option value="CONFIRMED">Confirmed</option>
-                        <option value="CANCELLED">Cancelled</option>
-                        <option value="COMPLETED">Completed</option>
-                        <option value="NO_SHOW">No show</option>
-                      </select>
-                      <textarea
-                        className="field min-h-24 resize-y"
-                        defaultValue={booking.adminNotes ?? ""}
-                        name="adminNotes"
-                        placeholder="Admin notes"
-                      />
-                      <SubmitButton className="w-full justify-center">Save booking</SubmitButton>
-                    </form>
+                    <div className="grid min-w-0 gap-3 lg:min-w-80">
+                      <form action={updateBookingAction} className="grid gap-3">
+                        <input name="bookingId" type="hidden" value={booking.id} />
+                        <input
+                          className="field"
+                          defaultValue={booking.startAt.toISOString().slice(0, 16)}
+                          name="startAt"
+                          type="datetime-local"
+                        />
+                        <select className="field" defaultValue={booking.status} name="status">
+                          <option value="CONFIRMED">Confirmed</option>
+                          <option value="CANCELLED">Cancelled</option>
+                          <option value="COMPLETED">Completed</option>
+                          <option value="NO_SHOW">No show</option>
+                        </select>
+                        <textarea
+                          className="field min-h-24 resize-y"
+                          defaultValue={booking.adminNotes ?? ""}
+                          name="adminNotes"
+                          placeholder="Admin notes"
+                        />
+                        <SubmitButton className="w-full justify-center">Save booking</SubmitButton>
+                      </form>
+
+                      {booking.status === "CANCELLED" &&
+                      booking.paymentStatus === "PAID" &&
+                      booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" &&
+                      booking.stripePaymentIntentId ? (
+                        <form action={issueBookingRefundAction}>
+                          <input name="bookingId" type="hidden" value={booking.id} />
+                          <SubmitButton className="w-full justify-center">
+                            Issue deposit refund
+                          </SubmitButton>
+                        </form>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               ))}

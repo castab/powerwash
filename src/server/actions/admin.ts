@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { addMinutes } from "date-fns";
 import { BookingStatus, PaymentStatus } from "@prisma/client";
 import { createAdminSession, verifyPassword } from "@/lib/auth";
+import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
 import { prisma } from "@/lib/prisma";
+import { getStripe } from "@/lib/stripe";
 import {
   adminLoginSchema,
   availabilitySchema,
@@ -13,7 +15,7 @@ import {
   bookingAdminUpdateSchema,
   serviceSchema,
 } from "@/lib/validators";
-import { slugify, toMoneyDecimal } from "@/lib/utils";
+import { slugify, toMoneyDecimal, toStripeCents } from "@/lib/utils";
 
 export async function loginAdminAction(_state: { error?: string }, formData: FormData) {
   const parsed = adminLoginSchema.safeParse({
@@ -220,4 +222,77 @@ export async function updateBookingAction(formData: FormData) {
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/confirmation");
+}
+
+export async function issueBookingRefundAction(formData: FormData) {
+  const bookingId = formData.get("bookingId");
+
+  if (typeof bookingId !== "string" || bookingId.length === 0) {
+    throw new Error("Booking not found.");
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      service: true,
+      customer: true,
+      vehicle: true,
+    },
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  if (booking.status !== BookingStatus.CANCELLED) {
+    throw new Error("Only canceled bookings can be refunded.");
+  }
+
+  if (booking.paymentStatus !== PaymentStatus.PAID) {
+    throw new Error("This booking is not awaiting a refund.");
+  }
+
+  if (booking.refundReason !== "CUSTOMER_CANCELLED_INSIDE_24_HOURS") {
+    throw new Error("This booking is not eligible for an admin-issued refund.");
+  }
+
+  if (!booking.stripePaymentIntentId) {
+    throw new Error("Stripe payment reference is missing for this booking.");
+  }
+
+  const stripe = getStripe();
+  const refund = await stripe.refunds.create(
+    {
+      payment_intent: booking.stripePaymentIntentId,
+      amount: toStripeCents(booking.depositAmount),
+      reason: "requested_by_customer",
+      metadata: {
+        bookingId: booking.id,
+        refundSource: "admin-dashboard",
+      },
+    },
+    {
+      idempotencyKey: `admin-booking-refund-${booking.id}`,
+    },
+  );
+
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      paymentStatus: PaymentStatus.REFUNDED,
+      refundAmount: booking.depositAmount,
+      refundedAt: new Date(),
+      refundReason: "ADMIN_REFUNDED_LATE_CANCELLATION",
+      stripeRefundId: refund.id,
+    },
+  });
+
+  try {
+    await sendCancellationOutcomeEmail(booking.id, "admin_refunded");
+  } catch (error) {
+    console.error("Failed to send admin refund email", error);
+  }
+
+  revalidatePath("/admin/bookings");
+  revalidatePath("/booking/manage");
 }
