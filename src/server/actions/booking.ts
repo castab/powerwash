@@ -9,6 +9,7 @@ import {
   canAutoRefundBooking,
   getManagedBookingByToken,
   rotateAndSendManageBookingEmail,
+  sendCancellationOutcomeEmail,
 } from "@/lib/booking-management";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
@@ -35,7 +36,7 @@ function isRedirectError(error: unknown) {
   );
 }
 
-async function cancelManagedBooking(token: string) {
+async function cancelManagedBooking(token: string, confirmedInsideWindow: boolean) {
   const booking = await getManagedBookingByToken(token);
 
   if (!booking) {
@@ -59,6 +60,10 @@ async function cancelManagedBooking(token: string) {
   }
 
   if (!canAutoRefundBooking(booking.startAt)) {
+    if (!confirmedInsideWindow) {
+      redirect(buildManageRedirect(token, { error: "confirm_required" }));
+    }
+
     await prisma.booking.update({
       where: { id: booking.id },
       data: {
@@ -67,6 +72,12 @@ async function cancelManagedBooking(token: string) {
         refundReason: "CUSTOMER_CANCELLED_INSIDE_24_HOURS",
       },
     });
+
+    try {
+      await sendCancellationOutcomeEmail(booking.id, "cancelled_contact_admin");
+    } catch (error) {
+      console.error("Failed to send no-auto-refund cancellation email", error);
+    }
 
     revalidatePath("/admin/bookings");
     redirect(buildManageRedirect(token, { result: "cancelled_contact_admin" }));
@@ -103,6 +114,12 @@ async function cancelManagedBooking(token: string) {
       stripeRefundId: refund.id,
     },
   });
+
+  try {
+    await sendCancellationOutcomeEmail(booking.id, "cancelled_refunded");
+  } catch (error) {
+    console.error("Failed to send refunded cancellation email", error);
+  }
 
   revalidatePath("/admin/bookings");
   redirect(buildManageRedirect(token, { result: "cancelled_refunded" }));
@@ -189,9 +206,9 @@ export async function createBookingCheckoutAction(
   }
 }
 
-export async function cancelManagedBookingAction(token: string) {
+export async function cancelManagedBookingAction(token: string, formData: FormData) {
   try {
-    await cancelManagedBooking(token);
+    await cancelManagedBooking(token, formData.get("confirmInsideWindow") === "true");
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;

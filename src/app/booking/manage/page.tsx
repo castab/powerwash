@@ -16,6 +16,7 @@ type Props = {
     token?: string;
     result?: string;
     error?: string;
+    confirm?: string;
   }>;
 };
 
@@ -52,13 +53,15 @@ function getErrorMessage(error: string | undefined) {
       return "We could not cancel this booking right now. Please try again or contact the business.";
     case "resend_failed":
       return "We could not send a new management link right now. Please try again.";
+    case "confirm_required":
+      return "Please review and confirm the inside-24-hour cancellation warning before canceling this booking.";
     default:
       return "";
   }
 }
 
 export default async function BookingManagePage({ searchParams }: Props) {
-  const { token, result, error } = await searchParams;
+  const { token, result, error, confirm } = await searchParams;
   const supportEmail = getSupportEmail();
 
   if (!token) {
@@ -107,6 +110,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
   const resultMessage = getResultMessage(result, supportEmail);
   const errorMessage = getErrorMessage(error);
   const autoRefundEligible = canAutoRefundBooking(booking.startAt);
+  const showCancellationWarning = !autoRefundEligible && confirm === "1";
   const canCancel =
     booking.status === BookingStatus.CONFIRMED && booking.paymentStatus === PaymentStatus.PAID;
 
@@ -190,14 +194,60 @@ export default async function BookingManagePage({ searchParams }: Props) {
               Confirmed bookings canceled at least 24 hours before the appointment receive an
               automatic refund of the deposit.
             </p>
-            <div className="mt-4">
-              <SubmitButton
-                className="bg-red-600 hover:bg-red-700 disabled:bg-red-300"
-                disabled={!canCancel}
-              >
-                {canCancel ? "Cancel booking" : "Cancellation unavailable"}
-              </SubmitButton>
-            </div>
+            {canCancel && !autoRefundEligible ? (
+              <div className="mt-4 space-y-4">
+                {showCancellationWarning ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-800">
+                    <p className="font-semibold">Cancel this booking now?</p>
+                    <p className="mt-2">
+                      This booking will be canceled immediately. The deposit may be forfeited and
+                      no automatic refund will be issued.
+                    </p>
+                    <p className="mt-2">
+                      {supportEmail
+                        ? `For refund support, please contact ${supportEmail}.`
+                        : "For refund support, please contact the business directly."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                    Canceling inside 24 hours may forfeit the deposit and requires an extra
+                    confirmation step.
+                  </div>
+                )}
+
+                {showCancellationWarning ? (
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <input name="confirmInsideWindow" type="hidden" value="true" />
+                    <SubmitButton className="bg-red-600 hover:bg-red-700">
+                      Confirm cancellation
+                    </SubmitButton>
+                    <Link
+                      className="button-secondary justify-center"
+                      href={`/booking/manage?token=${encodeURIComponent(token)}`}
+                    >
+                      Keep booking
+                    </Link>
+                  </div>
+                ) : (
+                  <Link
+                    className="button-primary inline-flex justify-center"
+                    href={`/booking/manage?token=${encodeURIComponent(token)}&confirm=1`}
+                  >
+                    Review cancellation warning
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <SubmitButton
+                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-300"
+                  disabled={!canCancel}
+                >
+                  {canCancel ? "Cancel booking" : "Cancellation unavailable"}
+                </SubmitButton>
+              </div>
+            )}
             {!canCancel ? (
               <p className="mt-3 text-sm text-muted">
                 This booking is not currently eligible for online cancellation.

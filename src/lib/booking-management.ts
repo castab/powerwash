@@ -115,6 +115,59 @@ function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
   };
 }
 
+function buildRefundedCancellationEmail(booking: ManagedBooking) {
+  const serviceDate = formatBookingDateTime(booking.startAt);
+
+  return {
+    subject: `Your ${booking.service.name} booking was canceled`,
+    text: [
+      `Hi ${booking.customer.firstName},`,
+      "",
+      `Your ${booking.service.name} booking for ${serviceDate} has been canceled.`,
+      `Stripe has been asked to refund your deposit of ${formatCurrency(booking.refundAmount ?? booking.depositAmount)}.`,
+      "Depending on your bank, it may take a few business days for the refund to appear.",
+      "",
+      getSupportCopy(),
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${booking.customer.firstName},</p>
+        <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> has been canceled.</p>
+        <p>Stripe has been asked to refund your deposit of <strong>${formatCurrency(booking.refundAmount ?? booking.depositAmount)}</strong>.</p>
+        <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
+        <p>${getSupportCopy()}</p>
+      </div>
+    `,
+  };
+}
+
+function buildManualCancellationEmail(booking: ManagedBooking) {
+  const serviceDate = formatBookingDateTime(booking.startAt);
+  const env = getEnv();
+  const supportLine = env.supportEmail
+    ? `For refund help, please contact ${env.supportEmail}.`
+    : "For refund help, please contact the business directly.";
+
+  return {
+    subject: `Your ${booking.service.name} booking was canceled`,
+    text: [
+      `Hi ${booking.customer.firstName},`,
+      "",
+      `Your ${booking.service.name} booking for ${serviceDate} has been canceled.`,
+      "Because the cancellation happened inside 24 hours of the appointment, no automatic refund was issued.",
+      supportLine,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${booking.customer.firstName},</p>
+        <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> has been canceled.</p>
+        <p>Because the cancellation happened inside 24 hours of the appointment, no automatic refund was issued.</p>
+        <p>${supportLine}</p>
+      </div>
+    `,
+  };
+}
+
 export async function rotateAndSendManageBookingEmail(bookingId: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -183,4 +236,30 @@ export async function ensureInitialManageBookingEmail(bookingId: string) {
 
 export function getSupportEmail() {
   return getEnv().supportEmail;
+}
+
+export async function sendCancellationOutcomeEmail(
+  bookingId: string,
+  outcome: "cancelled_refunded" | "cancelled_contact_admin",
+) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: bookingManagementInclude,
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  const email =
+    outcome === "cancelled_refunded"
+      ? buildRefundedCancellationEmail(booking)
+      : buildManualCancellationEmail(booking);
+
+  await sendEmail({
+    to: booking.customer.email,
+    subject: email.subject,
+    html: email.html,
+    text: email.text,
+  });
 }
