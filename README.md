@@ -117,6 +117,7 @@ What it does:
 - Runs `prisma migrate deploy` automatically before starting the dev server
 - Runs the Prisma seed script automatically so the default admin account exists
 - Uses webpack dev mode in Docker because file watching is more reliable than Turbopack on Windows bind mounts
+- Includes an optional Stripe CLI helper service for local webhook forwarding
 - Is intended for local development only, not Railway production deployment
 
 Before first run:
@@ -133,6 +134,65 @@ Start the stack:
 ```bash
 docker compose up --build
 ```
+
+### Stripe CLI helper for local webhooks
+
+The Compose stack includes an optional `stripe-cli` helper service for local Stripe webhook forwarding.
+
+First-time login:
+
+```bash
+docker compose run --rm stripe-cli login
+```
+
+What to expect:
+
+- Docker will print a Stripe login URL in the command output
+- Open that URL in your browser and complete the Stripe CLI authorization flow
+- The Stripe CLI config is stored in the `stripe_config` Docker volume, so you should not need to log in every time
+
+Start the listener after the app is already running:
+
+```bash
+docker compose --profile stripe up stripe-cli
+```
+
+What it does:
+
+- Runs `stripe listen --forward-to http://app:3000/api/stripe/webhook`
+- Forwards webhook events across the Compose network directly to the `app` service
+- Prints the current webhook signing secret (`whsec_...`) in the container logs
+
+Important manual step:
+
+1. Copy the `whsec_...` signing secret from the `stripe-cli` container logs.
+2. Add it to your local `.env` file as `STRIPE_WEBHOOK_SECRET=...`.
+3. Restart the app container so Next.js picks up the new env value.
+
+Example:
+
+```bash
+docker compose restart app
+```
+
+You will need to check the `stripe-cli` logs both:
+
+- to click the Stripe login link on first setup
+- to copy the webhook signing secret for the app container
+
+Useful commands:
+
+```bash
+docker compose logs -f stripe-cli
+docker compose run --rm stripe-cli login
+docker compose --profile stripe up stripe-cli
+```
+
+Troubleshooting:
+
+- Seeing `--> checkout.session.completed` in Stripe CLI is not enough by itself; also look for forwarded POST responses to `/api/stripe/webhook`
+- If webhook forwarding works but the app rejects the request, the most common cause is a missing or stale `STRIPE_WEBHOOK_SECRET`
+- The Stripe CLI helper is for local development only; production/staging environments should receive Stripe webhooks directly at the public `/api/stripe/webhook` URL
 
 Apply migrations from the running app container:
 
