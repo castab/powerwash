@@ -19,8 +19,12 @@ const moneySchema = z
 
 export const bookingSchema = z.object({
   serviceId: z.string().min(1, "Select a service."),
-  date: z.string().min(1, "Choose a date."),
-  startTime: z.string().min(1, "Choose a time."),
+  startAt: z
+    .string()
+    .min(1, "Choose a time.")
+    .refine((value) => !Number.isNaN(Date.parse(value)), {
+      message: "Choose a time.",
+    }),
   firstName: z.string().min(2, "Enter a first name."),
   lastName: z.string().min(2, "Enter a last name."),
   email: z.email("Enter a valid email."),

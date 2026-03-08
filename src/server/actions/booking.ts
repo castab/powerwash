@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createHeldBooking, combineDateAndTime } from "@/lib/booking";
+import { createHeldBooking } from "@/lib/booking";
 import { env } from "@/lib/env";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
@@ -19,8 +19,7 @@ export async function createBookingCheckoutAction(
 ): Promise<BookingActionState> {
   const parsed = bookingSchema.safeParse({
     serviceId: formData.get("serviceId"),
-    date: formData.get("date"),
-    startTime: formData.get("startTime"),
+    startAt: formData.get("startAt"),
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
     email: formData.get("email"),
@@ -41,7 +40,7 @@ export async function createBookingCheckoutAction(
   }
 
   try {
-    const startAt = combineDateAndTime(parsed.data.date, parsed.data.startTime);
+    const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
       startAt,

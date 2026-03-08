@@ -1,12 +1,4 @@
-import {
-  addMinutes,
-  areIntervalsOverlapping,
-  format,
-  isBefore,
-  parse,
-  set,
-  startOfDay,
-} from "date-fns";
+import { addMinutes, areIntervalsOverlapping, format, isBefore, set, startOfDay } from "date-fns";
 import { BookingStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { subtractMoney } from "@/lib/utils";
@@ -275,8 +267,4 @@ export async function getUpcomingBookings() {
     },
     orderBy: { startAt: "asc" },
   });
-}
-
-export function combineDateAndTime(date: string, time: string) {
-  return parse(`${date} ${time}`, "yyyy-MM-dd HH:mm", new Date());
 }

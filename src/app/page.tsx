@@ -28,9 +28,6 @@ export default async function HomePage() {
               <Link className="button-primary" href="/book">
                 Start booking
               </Link>
-              <Link className="button-secondary" href="/admin">
-                Open admin dashboard
-              </Link>
             </div>
           </div>
 
@@ -52,15 +49,6 @@ export default async function HomePage() {
                 <p className="mt-2 text-2xl font-semibold">In person</p>
               </div>
             </div>
-            <div className="mt-6 rounded-[28px] border border-dashed border-line bg-white p-5">
-              <p className="text-sm font-semibold">What this starter includes</p>
-              <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
-                <li>Next.js App Router with server actions and route handlers</li>
-                <li>PostgreSQL + Prisma with overlap protection in SQL and logic</li>
-                <li>Stripe Checkout deposit flow plus webhook confirmation</li>
-                <li>Secure admin login and operational dashboard</li>
-              </ul>
-            </div>
           </div>
         </section>
 
@@ -81,6 +69,12 @@ export default async function HomePage() {
             ))}
           </div>
         </section>
+
+        <footer className="border-t border-line pt-6 text-center text-sm text-muted">
+          <Link className="hover:text-foreground" href="/admin">
+            Admin Console
+          </Link>
+        </footer>
       </main>
     </div>
   );

@@ -1,8 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Service } from "@prisma/client";
 import { createBookingCheckoutAction, type BookingActionState } from "@/server/actions/booking";
 import { formatCurrency } from "@/lib/utils";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -12,47 +11,100 @@ const initialState: BookingActionState = {
   message: "",
 };
 
-function createDateOptions() {
-  const today = new Date();
-  return Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + index);
-    return date.toISOString().slice(0, 10);
-  });
-}
+type BookingFormValues = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  make: string;
+  model: string;
+  year: string;
+  color: string;
+  licensePlate: string;
+  notes: string;
+};
 
-export function BookingForm({ services }: { services: Service[] }) {
+const initialValues: BookingFormValues = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  make: "",
+  model: "",
+  year: "",
+  color: "",
+  licensePlate: "",
+  notes: "",
+};
+
+export type BookingFormService = {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  basePrice: string;
+  depositAmount: string;
+};
+
+export function BookingForm({
+  services,
+  dateOptions,
+}: {
+  services: BookingFormService[];
+  dateOptions: string[];
+}) {
   const searchParams = useSearchParams();
   const defaultServiceId = searchParams.get("serviceId") ?? services[0]?.id ?? "";
   const [selectedServiceId, setSelectedServiceId] = useState(defaultServiceId);
-  const [selectedDate, setSelectedDate] = useState(createDateOptions()[0]);
+  const [selectedDate, setSelectedDate] = useState(dateOptions[0] ?? "");
+  const [selectedStartAt, setSelectedStartAt] = useState("");
   const [slots, setSlots] = useState<Array<{ startAt: string; label: string }>>([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [values, setValues] = useState(initialValues);
   const [state, formAction] = useActionState(createBookingCheckoutAction, initialState);
 
-  const selectedService = useMemo(
-    () => services.find((service) => service.id === selectedServiceId),
-    [services, selectedServiceId],
-  );
+  const selectedService = services.find((service) => service.id === selectedServiceId);
 
   useEffect(() => {
+    let isCancelled = false;
+
     async function loadSlots() {
       if (!selectedServiceId || !selectedDate) return;
       setIsLoadingSlots(true);
+
       try {
         const response = await fetch(
           `/api/availability?serviceId=${selectedServiceId}&date=${selectedDate}`,
         );
-        const data = (await response.json()) as Array<{ startAt: string; label: string }>;
+        const data = response.ok
+          ? ((await response.json()) as Array<{ startAt: string; label: string }>)
+          : [];
+
+        if (isCancelled) return;
+
         setSlots(data);
+        setSelectedStartAt((current) => {
+          if (data.some((slot) => slot.startAt === current)) {
+            return current;
+          }
+
+          return data[0]?.startAt ?? "";
+        });
       } catch {
+        if (isCancelled) return;
         setSlots([]);
+        setSelectedStartAt("");
       } finally {
-        setIsLoadingSlots(false);
+        if (!isCancelled) {
+          setIsLoadingSlots(false);
+        }
       }
     }
 
     void loadSlots();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [selectedDate, selectedServiceId]);
 
   if (!services.length) {
@@ -65,6 +117,7 @@ export function BookingForm({ services }: { services: Service[] }) {
 
   return (
     <form action={formAction} className="panel stack p-5 sm:p-7">
+      <input name="startAt" type="hidden" value={selectedStartAt} />
       <div className="flex flex-col gap-2">
         <p className="badge w-fit">Reserve with deposit only</p>
         <h2 className="section-title">Book your wash</h2>
@@ -100,7 +153,7 @@ export function BookingForm({ services }: { services: Service[] }) {
             onChange={(event) => setSelectedDate(event.target.value)}
             value={selectedDate}
           >
-            {createDateOptions().map((date) => (
+            {dateOptions.map((date) => (
               <option key={date} value={date}>
                 {date}
               </option>
@@ -133,17 +186,22 @@ export function BookingForm({ services }: { services: Service[] }) {
           </div>
         ) : slots.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {slots.map((slot, index) => (
+            {slots.map((slot) => (
               <label
                 className="flex cursor-pointer items-center justify-center rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium has-[:checked]:border-brand has-[:checked]:bg-brand has-[:checked]:text-white"
                 key={slot.startAt}
               >
                 <input
                   className="sr-only"
-                  defaultChecked={index === 0}
-                  name="startTime"
+                  checked={selectedStartAt === slot.startAt}
+                  onChange={(event) => {
+                    if (event.target.checked) {
+                      setSelectedStartAt(slot.startAt);
+                    }
+                  }}
+                  name="slotOption"
                   type="radio"
-                  value={slot.startAt.slice(11, 16)}
+                  value={slot.startAt}
                 />
                 {slot.label}
               </label>
@@ -157,42 +215,104 @@ export function BookingForm({ services }: { services: Service[] }) {
       <div className="grid gap-4 md:grid-cols-2">
         <label className="stack">
           <span className="text-sm font-medium">First name</span>
-          <input className="field" name="firstName" placeholder="Jordan" required />
+          <input
+            className="field"
+            name="firstName"
+            onChange={(event) => setValues((current) => ({ ...current, firstName: event.target.value }))}
+            placeholder="Jordan"
+            required
+            value={values.firstName}
+          />
         </label>
         <label className="stack">
           <span className="text-sm font-medium">Last name</span>
-          <input className="field" name="lastName" placeholder="Taylor" required />
+          <input
+            className="field"
+            name="lastName"
+            onChange={(event) => setValues((current) => ({ ...current, lastName: event.target.value }))}
+            placeholder="Taylor"
+            required
+            value={values.lastName}
+          />
         </label>
         <label className="stack">
           <span className="text-sm font-medium">Email</span>
-          <input className="field" name="email" placeholder="jordan@example.com" required />
+          <input
+            className="field"
+            name="email"
+            onChange={(event) => setValues((current) => ({ ...current, email: event.target.value }))}
+            placeholder="jordan@example.com"
+            required
+            value={values.email}
+          />
         </label>
         <label className="stack">
           <span className="text-sm font-medium">Phone</span>
-          <input className="field" name="phone" placeholder="5551234567" required />
+          <input
+            className="field"
+            name="phone"
+            onChange={(event) => setValues((current) => ({ ...current, phone: event.target.value }))}
+            placeholder="5551234567"
+            required
+            value={values.phone}
+          />
         </label>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="stack">
           <span className="text-sm font-medium">Vehicle make</span>
-          <input className="field" name="make" placeholder="Toyota" required />
+          <input
+            className="field"
+            name="make"
+            onChange={(event) => setValues((current) => ({ ...current, make: event.target.value }))}
+            placeholder="Toyota"
+            required
+            value={values.make}
+          />
         </label>
         <label className="stack">
           <span className="text-sm font-medium">Vehicle model</span>
-          <input className="field" name="model" placeholder="RAV4" required />
+          <input
+            className="field"
+            name="model"
+            onChange={(event) => setValues((current) => ({ ...current, model: event.target.value }))}
+            placeholder="RAV4"
+            required
+            value={values.model}
+          />
         </label>
         <label className="stack">
           <span className="text-sm font-medium">Year</span>
-          <input className="field" name="year" placeholder="2022" />
+          <input
+            className="field"
+            name="year"
+            onChange={(event) => setValues((current) => ({ ...current, year: event.target.value }))}
+            placeholder="2022"
+            value={values.year}
+          />
         </label>
         <label className="stack">
           <span className="text-sm font-medium">Color</span>
-          <input className="field" name="color" placeholder="Pearl white" />
+          <input
+            className="field"
+            name="color"
+            onChange={(event) => setValues((current) => ({ ...current, color: event.target.value }))}
+            placeholder="Pearl white"
+            value={values.color}
+          />
         </label>
         <label className="stack md:col-span-2">
           <span className="text-sm font-medium">License plate</span>
-          <input className="field" name="licensePlate" placeholder="8ABC123" />
+          <input
+            className="field"
+            name="licensePlate"
+            onChange={(event) =>
+              setValues((current) => ({ ...current, licensePlate: event.target.value }))
+            }
+            placeholder="8ABC123"
+            value={values.licensePlate}
+          />
         </label>
       </div>
 
@@ -201,7 +321,9 @@ export function BookingForm({ services }: { services: Service[] }) {
         <textarea
           className="field min-h-28 resize-y"
           name="notes"
+          onChange={(event) => setValues((current) => ({ ...current, notes: event.target.value }))}
           placeholder="Pet hair, child seats, extra mud..."
+          value={values.notes}
         />
       </label>
 

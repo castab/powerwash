@@ -14,9 +14,6 @@ export function SiteHeader() {
           <Link className="text-muted hover:text-foreground" href="/book">
             Book
           </Link>
-          <Link className="button-secondary px-4 py-2" href="/admin">
-            Admin
-          </Link>
         </nav>
       </div>
     </header>
