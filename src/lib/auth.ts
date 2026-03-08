@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { env } from "@/lib/env";
+import { getEnv } from "@/lib/env";
 
 const COOKIE_NAME = "powerwash-admin-session";
 const encoder = new TextEncoder();
@@ -15,6 +15,7 @@ type SessionPayload = {
 };
 
 async function getSecret() {
+  const env = getEnv();
   return encoder.encode(env.adminSessionSecret);
 }
 

@@ -85,6 +85,13 @@ model Booking {
   paymentExpiresAt        DateTime?
   confirmedAt             DateTime?
   cancelledAt             DateTime?
+  manageTokenHash         String?       @unique
+  manageTokenRotatedAt    DateTime?
+  manageLinkSentAt        DateTime?
+  refundAmount            Decimal?      @db.Decimal(10, 2)
+  refundReason            String?
+  refundedAt              DateTime?
+  stripeRefundId          String?       @unique
   service                 Service       @relation(fields: [serviceId], references: [id])
   customer                Customer      @relation(fields: [customerId], references: [id])
   vehicle                 Vehicle       @relation(fields: [vehicleId], references: [id])

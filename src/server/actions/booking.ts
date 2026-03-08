@@ -1,8 +1,15 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { BookingStatus, PaymentStatus } from "@prisma/client";
 import { createHeldBooking } from "@/lib/booking";
-import { env } from "@/lib/env";
+import { getEnv } from "@/lib/env";
+import {
+  canAutoRefundBooking,
+  getManagedBookingByToken,
+  rotateAndSendManageBookingEmail,
+} from "@/lib/booking-management";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +20,11 @@ export type BookingActionState = {
   message: string;
 };
 
+function buildManageRedirect(token: string, params: Record<string, string>) {
+  const searchParams = new URLSearchParams({ token, ...params });
+  return `/booking/manage?${searchParams.toString()}`;
+}
+
 function isRedirectError(error: unknown) {
   return (
     typeof error === "object" &&
@@ -21,6 +33,79 @@ function isRedirectError(error: unknown) {
     typeof error.digest === "string" &&
     error.digest.startsWith("NEXT_REDIRECT")
   );
+}
+
+async function cancelManagedBooking(token: string) {
+  const booking = await getManagedBookingByToken(token);
+
+  if (!booking) {
+    redirect("/booking/manage?error=invalid_link");
+  }
+
+  if (booking.status === BookingStatus.CANCELLED) {
+    const result =
+      booking.paymentStatus === PaymentStatus.REFUNDED
+        ? "already_cancelled_refunded"
+        : "already_cancelled";
+    redirect(buildManageRedirect(token, { result }));
+  }
+
+  if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.NO_SHOW) {
+    redirect(buildManageRedirect(token, { error: "cannot_cancel_terminal" }));
+  }
+
+  if (booking.status !== BookingStatus.CONFIRMED || booking.paymentStatus !== PaymentStatus.PAID) {
+    redirect(buildManageRedirect(token, { error: "not_cancellable" }));
+  }
+
+  if (!canAutoRefundBooking(booking.startAt)) {
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        status: BookingStatus.CANCELLED,
+        cancelledAt: new Date(),
+        refundReason: "CUSTOMER_CANCELLED_INSIDE_24_HOURS",
+      },
+    });
+
+    revalidatePath("/admin/bookings");
+    redirect(buildManageRedirect(token, { result: "cancelled_contact_admin" }));
+  }
+
+  if (!booking.stripePaymentIntentId) {
+    redirect(buildManageRedirect(token, { error: "refund_unavailable" }));
+  }
+
+  const stripe = getStripe();
+  const refund = await stripe.refunds.create(
+    {
+      payment_intent: booking.stripePaymentIntentId,
+      amount: toStripeCents(booking.depositAmount),
+      reason: "requested_by_customer",
+      metadata: {
+        bookingId: booking.id,
+      },
+    },
+    {
+      idempotencyKey: `booking-cancel-refund-${booking.id}`,
+    },
+  );
+
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      status: BookingStatus.CANCELLED,
+      paymentStatus: PaymentStatus.REFUNDED,
+      cancelledAt: new Date(),
+      refundedAt: new Date(),
+      refundAmount: booking.depositAmount,
+      refundReason: "CUSTOMER_CANCELLED_24_HOURS_PLUS",
+      stripeRefundId: refund.id,
+    },
+  });
+
+  revalidatePath("/admin/bookings");
+  redirect(buildManageRedirect(token, { result: "cancelled_refunded" }));
 }
 
 export async function createBookingCheckoutAction(
@@ -51,6 +136,7 @@ export async function createBookingCheckoutAction(
   }
 
   try {
+    const env = getEnv();
     const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
@@ -100,5 +186,36 @@ export async function createBookingCheckoutAction(
           ? error.message
           : "Unable to start checkout. Please try again.",
     };
+  }
+}
+
+export async function cancelManagedBookingAction(token: string) {
+  try {
+    await cancelManagedBooking(token);
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    redirect(buildManageRedirect(token, { error: "cancel_failed" }));
+  }
+}
+
+export async function resendManagedBookingLinkAction(token: string) {
+  try {
+    const booking = await getManagedBookingByToken(token);
+
+    if (!booking) {
+      redirect("/booking/manage?error=invalid_link");
+    }
+
+    const nextToken = await rotateAndSendManageBookingEmail(booking.id);
+    redirect(buildManageRedirect(nextToken, { result: "resent" }));
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    redirect(buildManageRedirect(token, { error: "resend_failed" }));
   }
 }

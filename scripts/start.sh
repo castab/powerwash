@@ -23,6 +23,9 @@ require_env NEXT_PUBLIC_APP_URL
 require_env ADMIN_SESSION_SECRET
 require_env STRIPE_SECRET_KEY
 require_env STRIPE_WEBHOOK_SECRET
+require_env RESEND_API_KEY
+require_env EMAIL_FROM
+require_env SUPPORT_EMAIL
 
 if [ ! -d "node_modules/@prisma/client" ]; then
   log "Prisma client not found, generating"

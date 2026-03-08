@@ -47,8 +47,9 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
         <p className="badge">Booking confirmation</p>
         <h1 className="mt-4 text-3xl font-semibold tracking-tight">Deposit received</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Your booking is held for {booking.customer.firstName}. We also sent the payment receipt
-          through Stripe. Remaining balance is due in person at check-in.
+          Your booking is held for {booking.customer.firstName}. We also emailed a secure booking
+          management link and Stripe sent the payment receipt. Remaining balance is due in person
+          at check-in.
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">

@@ -1,11 +1,13 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { BookingStatus, PaymentStatus } from "@prisma/client";
-import { env } from "@/lib/env";
+import { getEnv } from "@/lib/env";
+import { ensureInitialManageBookingEmail } from "@/lib/booking-management";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 
 export async function POST(request: Request) {
+  const env = getEnv();
   const stripe = getStripe();
   const body = await request.text();
   const signature = (await headers()).get("stripe-signature");
@@ -41,6 +43,8 @@ export async function POST(request: Request) {
             typeof session.payment_intent === "string" ? session.payment_intent : null,
         },
       });
+
+      await ensureInitialManageBookingEmail(bookingId);
     }
   }
 
