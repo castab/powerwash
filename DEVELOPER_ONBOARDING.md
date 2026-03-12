@@ -117,6 +117,38 @@ Core values to set for a functional local setup:
 4. Start app: `npm run dev`
 5. Optional containerized path: `docker compose up --build`
 
+### Stripe CLI for local webhook forwarding (first run vs later runs)
+The app confirms payment through `POST /api/stripe/webhook`, so local development needs Stripe
+events to be forwarded to your local app instance.
+
+If you are using Docker Compose, there is an optional `stripe-cli` helper service that runs:
+`stripe listen --forward-to http://app:3000/api/stripe/webhook`.
+
+#### First startup behavior
+1. Authorize Stripe CLI once:
+   - `docker compose run --rm stripe-cli login`
+2. Start listener:
+   - `docker compose --profile stripe up stripe-cli`
+3. Watch logs and copy the signing secret (`whsec_...`) printed by Stripe CLI.
+4. Put that value in your `.env` as `STRIPE_WEBHOOK_SECRET=...`.
+5. Restart app process/container so env is reloaded.
+
+Without that `STRIPE_WEBHOOK_SECRET`, webhook signature verification fails and bookings won’t be
+promoted from `PENDING_PAYMENT` to `CONFIRMED` after checkout.
+
+#### Subsequent startups
+- You usually do **not** need to re-run login because Stripe CLI auth is persisted in the Docker
+  volume (`stripe_config`).
+- You still need to ensure the listener is running during testing (`docker compose --profile stripe up stripe-cli`).
+- The webhook signing secret can rotate if you restart listeners in a new context; if webhook
+  verification suddenly fails locally, recopy the current `whsec_...` from Stripe CLI logs and
+  update `.env`, then restart the app.
+
+#### Helpful verification signals
+- Stripe CLI logs should show events like `checkout.session.completed` and successful forwards to
+  `/api/stripe/webhook`.
+- App-side expected result is booking status transition to `CONFIRMED` and payment status `PAID`.
+
 Default seed admin credentials (override with env):
 - Email: `admin@example.com`
 - Password: `ChangeMe123!`
