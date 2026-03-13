@@ -33,6 +33,7 @@ export function getEnv() {
     stripeSecretKey: readEnv("STRIPE_SECRET_KEY"),
     stripeWebhookSecret: readEnv("STRIPE_WEBHOOK_SECRET"),
     adminSessionSecret: readEnv("ADMIN_SESSION_SECRET", "change-me"),
+    manageLinkSecret: readEnv("MANAGE_LINK_SECRET", "change-me-manage-link"),
     resendApiKey: readEnv("RESEND_API_KEY"),
     emailFrom,
     supportEmail,

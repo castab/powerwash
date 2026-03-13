@@ -1,6 +1,7 @@
 import { addMinutes, areIntervalsOverlapping, format, isBefore, set, startOfDay } from "date-fns";
-import { BookingStatus, PaymentStatus, Prisma } from "@prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { subtractMoney } from "@/lib/utils";
 
 const SLOT_INTERVAL_MINUTES = 15;
@@ -11,6 +12,21 @@ export type AvailableSlot = {
   endAt: string;
   label: string;
 };
+
+const adminBookingInclude = {
+  service: true,
+  archivedByAdminUser: true,
+  events: {
+    orderBy: { createdAt: "desc" as const },
+    include: {
+      actorAdminUser: true,
+    },
+  },
+} satisfies Prisma.BookingInclude;
+
+export type AdminBooking = Prisma.BookingGetPayload<{
+  include: typeof adminBookingInclude;
+}>;
 
 function getDayBounds(date: Date, time: string) {
   const [hours, minutes] = time.split(":").map(Number);
@@ -53,11 +69,7 @@ export async function getAvailableSlots(serviceId: string, dateInput: string) {
         OR: [
           {
             status: {
-              in: [
-                BookingStatus.CONFIRMED,
-                BookingStatus.COMPLETED,
-                BookingStatus.NO_SHOW,
-              ],
+              in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW],
             },
           },
           {
@@ -170,11 +182,7 @@ export async function createHeldBooking(input: {
           OR: [
             {
               status: {
-                in: [
-                  BookingStatus.CONFIRMED,
-                  BookingStatus.COMPLETED,
-                  BookingStatus.NO_SHOW,
-                ],
+                in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW],
               },
             },
             {
@@ -189,50 +197,43 @@ export async function createHeldBooking(input: {
         throw new Error("That appointment window was just taken.");
       }
 
-      const customer = await tx.customer.create({
-        data: {
-          firstName: input.firstName,
-          lastName: input.lastName,
-          email: input.email,
-          phone: input.phone,
-          notes: input.notes,
-        },
-      });
-
-      const vehicle = await tx.vehicle.create({
-        data: {
-          customerId: customer.id,
-          make: input.make,
-          model: input.model,
-          year: input.year,
-          color: input.color,
-          licensePlate: input.licensePlate,
-          notes: input.notes,
-        },
-      });
-
       try {
-        return await tx.booking.create({
+        const booking = await tx.booking.create({
           data: {
             serviceId: service.id,
-            customerId: customer.id,
-            vehicleId: vehicle.id,
+            firstName: input.firstName,
+            lastName: input.lastName,
+            email: input.email,
+            phone: input.phone,
+            vehicleMake: input.make,
+            vehicleModel: input.model,
+            vehicleYear: input.year,
+            vehicleColor: input.color,
+            vehicleLicensePlate: input.licensePlate,
+            customerNotes: input.notes,
             startAt: input.startAt,
             endAt,
             totalPrice: service.basePrice,
             depositAmount: service.depositAmount,
             balanceDue: subtractMoney(service.basePrice, service.depositAmount),
-            notes: input.notes,
             status: BookingStatus.PENDING_PAYMENT,
             paymentStatus: PaymentStatus.PENDING,
             paymentExpiresAt: addMinutes(new Date(), HOLD_MINUTES),
           },
           include: {
             service: true,
-            customer: true,
-            vehicle: true,
           },
         });
+
+        await createBookingEvent({
+          db: tx,
+          bookingId: booking.id,
+          type: BookingEventType.BOOKING_CREATED,
+          actorLabel: "customer",
+          afterState: pickBookingEventState(booking),
+        });
+
+        return booking;
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError ||
@@ -249,25 +250,38 @@ export async function createHeldBooking(input: {
   );
 }
 
-export async function getUpcomingBookings() {
-  return prisma.booking.findMany({
-    where: {
-      startAt: { gte: startOfDay(new Date()) },
-      status: {
-        in: [
-          BookingStatus.PENDING_PAYMENT,
-          BookingStatus.CONFIRMED,
-          BookingStatus.CANCELLED,
-          BookingStatus.COMPLETED,
-          BookingStatus.NO_SHOW,
-        ],
+export async function getAdminBookings() {
+  const baseWhere = {
+    startAt: { gte: startOfDay(new Date()) },
+    status: {
+      in: [
+        BookingStatus.PENDING_PAYMENT,
+        BookingStatus.CONFIRMED,
+        BookingStatus.CANCELLED,
+        BookingStatus.COMPLETED,
+        BookingStatus.NO_SHOW,
+      ],
+    },
+  } satisfies Prisma.BookingWhereInput;
+
+  const [active, archived] = await Promise.all([
+    prisma.booking.findMany({
+      where: {
+        ...baseWhere,
+        archivedAt: null,
       },
-    },
-    include: {
-      service: true,
-      customer: true,
-      vehicle: true,
-    },
-    orderBy: { startAt: "asc" },
-  });
+      include: adminBookingInclude,
+      orderBy: { startAt: "asc" },
+    }),
+    prisma.booking.findMany({
+      where: {
+        ...baseWhere,
+        archivedAt: { not: null },
+      },
+      include: adminBookingInclude,
+      orderBy: [{ archivedAt: "desc" }, { startAt: "asc" }],
+    }),
+  ]);
+
+  return { active, archived };
 }

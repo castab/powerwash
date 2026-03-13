@@ -1,8 +1,9 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { BookingStatus, PaymentStatus } from "@prisma/client";
-import { getEnv } from "@/lib/env";
+import { BookingEventType, BookingStatus, PaymentStatus } from "@prisma/client";
 import { ensureInitialManageBookingEmail } from "@/lib/booking-management";
+import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
+import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 
@@ -32,19 +33,33 @@ export async function POST(request: Request) {
     const bookingId = session.metadata?.bookingId;
 
     if (bookingId) {
-      await prisma.booking.update({
+      const before = await prisma.booking.findUnique({
         where: { id: bookingId },
-        data: {
-          status: BookingStatus.CONFIRMED,
-          paymentStatus: PaymentStatus.PAID,
-          confirmedAt: new Date(),
-          stripeCheckoutSessionId: session.id,
-          stripePaymentIntentId:
-            typeof session.payment_intent === "string" ? session.payment_intent : null,
-        },
       });
 
-      await ensureInitialManageBookingEmail(bookingId);
+      if (before) {
+        const updated = await prisma.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: BookingStatus.CONFIRMED,
+            paymentStatus: PaymentStatus.PAID,
+            confirmedAt: new Date(),
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId:
+              typeof session.payment_intent === "string" ? session.payment_intent : null,
+          },
+        });
+
+        await createBookingEvent({
+          bookingId,
+          type: BookingEventType.PAYMENT_CONFIRMED,
+          actorLabel: "stripe-webhook",
+          beforeState: pickBookingEventState(before),
+          afterState: pickBookingEventState(updated),
+        });
+
+        await ensureInitialManageBookingEmail(bookingId);
+      }
     }
   }
 
@@ -53,14 +68,28 @@ export async function POST(request: Request) {
     const bookingId = session.metadata?.bookingId;
 
     if (bookingId) {
-      await prisma.booking.update({
+      const before = await prisma.booking.findUnique({
         where: { id: bookingId },
-        data: {
-          status: BookingStatus.CANCELLED,
-          paymentStatus: PaymentStatus.FAILED,
-          cancelledAt: new Date(),
-        },
       });
+
+      if (before) {
+        const updated = await prisma.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: BookingStatus.CANCELLED,
+            paymentStatus: PaymentStatus.FAILED,
+            cancelledAt: new Date(),
+          },
+        });
+
+        await createBookingEvent({
+          bookingId,
+          type: BookingEventType.PAYMENT_FAILED,
+          actorLabel: "stripe-webhook",
+          beforeState: pickBookingEventState(before),
+          afterState: pickBookingEventState(updated),
+        });
+      }
     }
   }
 

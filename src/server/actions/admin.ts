@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { addMinutes } from "date-fns";
-import { BookingStatus, PaymentStatus } from "@prisma/client";
-import { createAdminSession, verifyPassword } from "@/lib/auth";
+import { BookingEventType, BookingStatus, PaymentStatus } from "@prisma/client";
+import { createAdminSession, requireAdmin, verifyPassword } from "@/lib/auth";
+import { getArchivedCustomerAccessEndsAt } from "@/lib/booking-management";
+import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
@@ -16,6 +18,14 @@ import {
   serviceSchema,
 } from "@/lib/validators";
 import { slugify, toMoneyDecimal, toStripeCents } from "@/lib/utils";
+
+function canArchiveBooking(status: BookingStatus) {
+  return (
+    status === BookingStatus.COMPLETED ||
+    status === BookingStatus.CANCELLED ||
+    status === BookingStatus.NO_SHOW
+  );
+}
 
 export async function loginAdminAction(_state: { error?: string }, formData: FormData) {
   const parsed = adminLoginSchema.safeParse({
@@ -166,6 +176,7 @@ export async function saveBlackoutAction(formData: FormData) {
 }
 
 export async function updateBookingAction(formData: FormData) {
+  const admin = await requireAdmin();
   const parsed = bookingAdminUpdateSchema.safeParse({
     bookingId: formData.get("bookingId"),
     status: formData.get("status"),
@@ -186,6 +197,7 @@ export async function updateBookingAction(formData: FormData) {
     throw new Error("Booking not found.");
   }
 
+  const beforeState = pickBookingEventState(booking);
   const data: {
     status?: BookingStatus;
     startAt?: Date;
@@ -195,36 +207,146 @@ export async function updateBookingAction(formData: FormData) {
     paymentStatus?: PaymentStatus;
   } = {};
 
-  if (parsed.data.status) {
+  let eventType: BookingEventType = BookingEventType.BOOKING_UPDATED;
+
+  if (parsed.data.status && parsed.data.status !== booking.status) {
     data.status = parsed.data.status;
     if (parsed.data.status === BookingStatus.CANCELLED) {
       data.cancelledAt = new Date();
       if (booking.paymentStatus === PaymentStatus.PENDING) {
         data.paymentStatus = PaymentStatus.FAILED;
       }
+      eventType = BookingEventType.BOOKING_CANCELLED;
     }
   }
 
   if (parsed.data.startAt) {
     const startAt = new Date(parsed.data.startAt);
-    data.startAt = startAt;
-    data.endAt = addMinutes(startAt, booking.service.durationMinutes);
+    if (startAt.getTime() !== booking.startAt.getTime()) {
+      data.startAt = startAt;
+      data.endAt = addMinutes(startAt, booking.service.durationMinutes);
+      eventType = BookingEventType.BOOKING_RESCHEDULED;
+    }
   }
 
-  if (parsed.data.adminNotes !== undefined) {
+  if (parsed.data.adminNotes !== undefined && parsed.data.adminNotes !== booking.adminNotes) {
     data.adminNotes = parsed.data.adminNotes;
+    if (eventType === BookingEventType.BOOKING_UPDATED) {
+      eventType = BookingEventType.ADMIN_NOTES_UPDATED;
+    }
   }
 
-  await prisma.booking.update({
+  if (!Object.keys(data).length) {
+    return;
+  }
+
+  const updated = await prisma.booking.update({
     where: { id: booking.id },
     data,
+  });
+
+  await createBookingEvent({
+    bookingId: booking.id,
+    type: eventType,
+    actorAdminUserId: admin.id,
+    actorLabel: admin.email,
+    beforeState,
+    afterState: pickBookingEventState(updated),
   });
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/confirmation");
 }
 
+export async function archiveBookingAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const bookingId = formData.get("bookingId");
+
+  if (typeof bookingId !== "string" || bookingId.length === 0) {
+    throw new Error("Booking not found.");
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  if (!canArchiveBooking(booking.status)) {
+    throw new Error("Only terminal bookings can be archived.");
+  }
+
+  if (booking.archivedAt) {
+    return;
+  }
+
+  const archivedAt = new Date();
+  const updated = await prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      archivedAt,
+      archivedByAdminUserId: admin.id,
+      customerAccessEndsAt: getArchivedCustomerAccessEndsAt(archivedAt),
+    },
+  });
+
+  await createBookingEvent({
+    bookingId,
+    type: BookingEventType.BOOKING_ARCHIVED,
+    actorAdminUserId: admin.id,
+    actorLabel: admin.email,
+    beforeState: pickBookingEventState(booking),
+    afterState: pickBookingEventState(updated),
+  });
+
+  revalidatePath("/admin/bookings");
+}
+
+export async function unarchiveBookingAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const bookingId = formData.get("bookingId");
+
+  if (typeof bookingId !== "string" || bookingId.length === 0) {
+    throw new Error("Booking not found.");
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  if (!booking.archivedAt) {
+    return;
+  }
+
+  const updated = await prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      archivedAt: null,
+      archivedByAdminUserId: null,
+      customerAccessEndsAt: null,
+    },
+  });
+
+  await createBookingEvent({
+    bookingId,
+    type: BookingEventType.BOOKING_UNARCHIVED,
+    actorAdminUserId: admin.id,
+    actorLabel: admin.email,
+    beforeState: pickBookingEventState(booking),
+    afterState: pickBookingEventState(updated),
+  });
+
+  revalidatePath("/admin/bookings");
+}
+
 export async function issueBookingRefundAction(formData: FormData) {
+  const admin = await requireAdmin();
   const bookingId = formData.get("bookingId");
 
   if (typeof bookingId !== "string" || bookingId.length === 0) {
@@ -235,8 +357,6 @@ export async function issueBookingRefundAction(formData: FormData) {
     where: { id: bookingId },
     include: {
       service: true,
-      customer: true,
-      vehicle: true,
     },
   });
 
@@ -276,7 +396,7 @@ export async function issueBookingRefundAction(formData: FormData) {
     },
   );
 
-  await prisma.booking.update({
+  const updated = await prisma.booking.update({
     where: { id: booking.id },
     data: {
       paymentStatus: PaymentStatus.REFUNDED,
@@ -285,6 +405,15 @@ export async function issueBookingRefundAction(formData: FormData) {
       refundReason: "ADMIN_REFUNDED_LATE_CANCELLATION",
       stripeRefundId: refund.id,
     },
+  });
+
+  await createBookingEvent({
+    bookingId: booking.id,
+    type: BookingEventType.REFUND_ISSUED,
+    actorAdminUserId: admin.id,
+    actorLabel: admin.email,
+    beforeState: pickBookingEventState(booking),
+    afterState: pickBookingEventState(updated),
   });
 
   try {

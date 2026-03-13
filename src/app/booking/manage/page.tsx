@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import { BookingStatus, PaymentStatus } from "@prisma/client";
-import { getManagedBookingByToken, canAutoRefundBooking, getSupportEmail } from "@/lib/booking-management";
+import {
+  canAutoRefundBooking,
+  getManagedBookingByToken,
+  getSupportEmail,
+} from "@/lib/booking-management";
 import { formatCurrency } from "@/lib/utils";
 import {
   cancelManagedBookingAction,
@@ -55,6 +59,8 @@ function getErrorMessage(error: string | undefined) {
       return "We could not send a new management link right now. Please try again.";
     case "confirm_required":
       return "Please review and confirm the inside-24-hour cancellation warning before canceling this booking.";
+    case "archived_view_only":
+      return "This booking has been archived and is now view-only.";
     default:
       return "";
   }
@@ -112,7 +118,10 @@ export default async function BookingManagePage({ searchParams }: Props) {
   const autoRefundEligible = canAutoRefundBooking(booking.startAt);
   const showCancellationWarning = !autoRefundEligible && confirm === "1";
   const canCancel =
-    booking.status === BookingStatus.CONFIRMED && booking.paymentStatus === PaymentStatus.PAID;
+    !booking.archivedAt &&
+    booking.status === BookingStatus.CONFIRMED &&
+    booking.paymentStatus === PaymentStatus.PAID;
+  const isArchived = Boolean(booking.archivedAt);
 
   return (
     <main className="shell py-8">
@@ -124,6 +133,17 @@ export default async function BookingManagePage({ searchParams }: Props) {
         <p className="mt-3 text-sm leading-6 text-muted">
           Review the reservation details, resend this secure link, or cancel the booking.
         </p>
+
+        {isArchived ? (
+          <p className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            This booking has been archived. You can still view the details, but management actions
+            are disabled. Customer access remains available until{" "}
+            {booking.customerAccessEndsAt
+              ? format(booking.customerAccessEndsAt, "MMMM d, yyyy")
+              : "the retention window ends"}
+            .
+          </p>
+        ) : null}
 
         {resultMessage ? (
           <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -146,12 +166,12 @@ export default async function BookingManagePage({ searchParams }: Props) {
             <p className="mt-1 text-sm text-muted">{booking.service.name}</p>
             <p className="mt-4 text-sm text-muted">Vehicle</p>
             <p className="mt-1 text-sm font-medium">
-              {booking.vehicle.year ? `${booking.vehicle.year} ` : ""}
-              {booking.vehicle.make} {booking.vehicle.model}
+              {booking.vehicleYear ? `${booking.vehicleYear} ` : ""}
+              {booking.vehicleMake} {booking.vehicleModel}
             </p>
             <p className="mt-1 text-sm text-muted">
-              {booking.vehicle.color || "Color not provided"}
-              {booking.vehicle.licensePlate ? ` | Plate ${booking.vehicle.licensePlate}` : ""}
+              {booking.vehicleColor || "Color not provided"}
+              {booking.vehicleLicensePlate ? ` | Plate ${booking.vehicleLicensePlate}` : ""}
             </p>
           </div>
 
@@ -184,8 +204,13 @@ export default async function BookingManagePage({ searchParams }: Props) {
               Email a fresh management link and invalidate older links.
             </p>
             <div className="mt-4">
-              <SubmitButton>Email new link</SubmitButton>
+              <SubmitButton disabled={isArchived}>Email new link</SubmitButton>
             </div>
+            {isArchived ? (
+              <p className="mt-3 text-sm text-muted">
+                Archived bookings cannot issue new customer links.
+              </p>
+            ) : null}
           </form>
 
           <form action={cancelAction} className="rounded-[24px] border border-line p-5">

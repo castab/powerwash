@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { BookingStatus, PaymentStatus } from "@prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus } from "@prisma/client";
 import { createHeldBooking } from "@/lib/booking";
+import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { getEnv } from "@/lib/env";
 import {
   canAutoRefundBooking,
@@ -55,22 +56,36 @@ async function cancelManagedBooking(token: string, confirmedInsideWindow: boolea
     redirect(buildManageRedirect(token, { error: "cannot_cancel_terminal" }));
   }
 
+  if (booking.archivedAt) {
+    redirect(buildManageRedirect(token, { error: "archived_view_only" }));
+  }
+
   if (booking.status !== BookingStatus.CONFIRMED || booking.paymentStatus !== PaymentStatus.PAID) {
     redirect(buildManageRedirect(token, { error: "not_cancellable" }));
   }
+
+  const beforeState = pickBookingEventState(booking);
 
   if (!canAutoRefundBooking(booking.startAt)) {
     if (!confirmedInsideWindow) {
       redirect(buildManageRedirect(token, { error: "confirm_required" }));
     }
 
-    await prisma.booking.update({
+    const updated = await prisma.booking.update({
       where: { id: booking.id },
       data: {
         status: BookingStatus.CANCELLED,
         cancelledAt: new Date(),
         refundReason: "CUSTOMER_CANCELLED_INSIDE_24_HOURS",
       },
+    });
+
+    await createBookingEvent({
+      bookingId: booking.id,
+      type: BookingEventType.BOOKING_CANCELLED,
+      actorLabel: "customer",
+      beforeState,
+      afterState: pickBookingEventState(updated),
     });
 
     try {
@@ -102,7 +117,7 @@ async function cancelManagedBooking(token: string, confirmedInsideWindow: boolea
     },
   );
 
-  await prisma.booking.update({
+  const updated = await prisma.booking.update({
     where: { id: booking.id },
     data: {
       status: BookingStatus.CANCELLED,
@@ -113,6 +128,14 @@ async function cancelManagedBooking(token: string, confirmedInsideWindow: boolea
       refundReason: "CUSTOMER_CANCELLED_24_HOURS_PLUS",
       stripeRefundId: refund.id,
     },
+  });
+
+  await createBookingEvent({
+    bookingId: booking.id,
+    type: BookingEventType.REFUND_ISSUED,
+    actorLabel: "customer",
+    beforeState,
+    afterState: pickBookingEventState(updated),
   });
 
   try {
@@ -164,7 +187,7 @@ export async function createBookingCheckoutAction(
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      customer_email: booking.customer.email,
+      customer_email: booking.email,
       metadata: {
         bookingId: booking.id,
       },
@@ -199,9 +222,7 @@ export async function createBookingCheckoutAction(
     return {
       status: "error",
       message:
-        error instanceof Error
-          ? error.message
-          : "Unable to start checkout. Please try again.",
+        error instanceof Error ? error.message : "Unable to start checkout. Please try again.",
     };
   }
 }
@@ -226,7 +247,14 @@ export async function resendManagedBookingLinkAction(token: string) {
       redirect("/booking/manage?error=invalid_link");
     }
 
+    if (booking.archivedAt) {
+      redirect(buildManageRedirect(token, { error: "archived_view_only" }));
+    }
+
     const nextToken = await rotateAndSendManageBookingEmail(booking.id);
+    if (!nextToken) {
+      redirect(buildManageRedirect(token, { error: "resend_failed" }));
+    }
     redirect(buildManageRedirect(nextToken, { result: "resent" }));
   } catch (error) {
     if (isRedirectError(error)) {

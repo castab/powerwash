@@ -24,6 +24,21 @@ enum PaymentStatus {
   FAILED
 }
 
+enum BookingEventType {
+  BOOKING_CREATED
+  PAYMENT_CONFIRMED
+  PAYMENT_FAILED
+  BOOKING_UPDATED
+  BOOKING_CANCELLED
+  BOOKING_RESCHEDULED
+  ADMIN_NOTES_UPDATED
+  REFUND_ISSUED
+  MANAGE_LINK_ISSUED
+  MANAGE_LINK_ROTATED
+  BOOKING_ARCHIVED
+  BOOKING_UNARCHIVED
+}
+
 model Service {
   id              String    @id @default(cuid())
   name            String
@@ -38,39 +53,19 @@ model Service {
   updatedAt       DateTime  @updatedAt
 }
 
-model Customer {
-  id         String    @id @default(cuid())
-  firstName  String
-  lastName   String
-  email      String
-  phone      String
-  notes      String?
-  vehicles   Vehicle[]
-  bookings   Booking[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-}
-
-model Vehicle {
-  id           String    @id @default(cuid())
-  customerId   String
-  year         Int?
-  make         String
-  model        String
-  color        String?
-  licensePlate String?
-  notes        String?
-  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  bookings     Booking[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-}
-
 model Booking {
   id                      String        @id @default(cuid())
   serviceId               String
-  customerId              String
-  vehicleId               String
+  firstName               String
+  lastName                String
+  email                   String
+  phone                   String
+  vehicleMake             String
+  vehicleModel            String
+  vehicleYear             Int?
+  vehicleColor            String?
+  vehicleLicensePlate     String?
+  customerNotes           String?
   startAt                 DateTime
   endAt                   DateTime
   status                  BookingStatus @default(PENDING_PAYMENT)
@@ -80,26 +75,45 @@ model Booking {
   balanceDue              Decimal       @db.Decimal(10, 2)
   stripeCheckoutSessionId String?       @unique
   stripePaymentIntentId   String?       @unique
-  notes                   String?
   adminNotes              String?
   paymentExpiresAt        DateTime?
   confirmedAt             DateTime?
   cancelledAt             DateTime?
-  manageTokenHash         String?       @unique
+  manageTokenVersion      Int           @default(0)
   manageTokenRotatedAt    DateTime?
   manageLinkSentAt        DateTime?
   refundAmount            Decimal?      @db.Decimal(10, 2)
   refundReason            String?
   refundedAt              DateTime?
   stripeRefundId          String?       @unique
+  archivedAt              DateTime?
+  archivedByAdminUserId   String?
+  customerAccessEndsAt    DateTime?
   service                 Service       @relation(fields: [serviceId], references: [id])
-  customer                Customer      @relation(fields: [customerId], references: [id])
-  vehicle                 Vehicle       @relation(fields: [vehicleId], references: [id])
+  archivedByAdminUser     AdminUser?    @relation("ArchivedBookings", fields: [archivedByAdminUserId], references: [id])
+  events                  BookingEvent[]
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
 
   @@index([startAt, endAt])
   @@index([status, paymentStatus])
+  @@index([archivedAt, startAt])
+}
+
+model BookingEvent {
+  id               String           @id @default(cuid())
+  bookingId        String
+  type             BookingEventType
+  actorAdminUserId String?
+  actorLabel       String?
+  beforeState      Json?
+  afterState       Json?
+  booking          Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  actorAdminUser   AdminUser?       @relation("BookingEvents", fields: [actorAdminUserId], references: [id])
+  createdAt        DateTime         @default(now())
+
+  @@index([bookingId, createdAt])
+  @@index([type, createdAt])
 }
 
 model AvailabilityRule {
@@ -127,12 +141,14 @@ model BlackoutDate {
 }
 
 model AdminUser {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  isActive     Boolean  @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String         @id @default(cuid())
+  email             String         @unique
+  passwordHash      String
+  name              String
+  isActive          Boolean        @default(true)
+  lastLoginAt       DateTime?
+  archivedBookings  Booking[]      @relation("ArchivedBookings")
+  bookingEvents     BookingEvent[] @relation("BookingEvents")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 }
