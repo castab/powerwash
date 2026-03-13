@@ -1,3 +1,5 @@
+import { parseDevBookingPrefill } from "@/lib/booking-prefill";
+
 const warnedKeys = new Set<string>();
 
 function warnOnce(key: string) {
@@ -35,4 +37,11 @@ export function getEnv() {
     emailFrom,
     supportEmail,
   };
+}
+
+export function getDevBookingPrefill() {
+  return parseDevBookingPrefill({
+    enabled: process.env.NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED,
+    json: process.env.NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON,
+  });
 }

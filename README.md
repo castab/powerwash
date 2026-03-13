@@ -227,6 +227,8 @@ docker compose down -v
 | `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key |
 | `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook` |
 | `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe success and cancel URLs |
+| `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED` | Local only | Shows a dev-only `Use sample data` button on `/book` when set to `true` |
+| `NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON` | Local only | JSON payload used to fill booking form contact and vehicle fields during development |
 | `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies |
 | `SEED_ADMIN_EMAIL` | Optional | Seed admin login email |
 | `SEED_ADMIN_PASSWORD` | Optional | Seed admin login password |
@@ -347,6 +349,23 @@ Because startup uses `AdminUser` existence as the seed sentinel, automatic seed 
 5. Stripe Checkout collects only the deposit.
 6. Stripe webhook marks the booking `CONFIRMED` and payment `PAID`.
 7. Remaining balance stays recorded on the booking as `balanceDue`.
+
+## Dev Booking Prefill
+
+For local development, you can expose a `Use sample data` button on `/book` to fill the customer and vehicle fields with a reusable sample payload.
+
+Add these values in `.env.local` only:
+
+```env
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","make":"Toyota","model":"RAV4","year":"2022","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
+```
+
+Notes:
+
+- This does not change service, date, or slot selection.
+- If the JSON is malformed or invalid, the button stays hidden.
+- This is intended for local development only and should not be enabled in production.
 
 ## Notes
 

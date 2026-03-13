@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { applyBookingFormPrefill, emptyBookingFormPrefill, type BookingFormPrefill } from "@/lib/booking-prefill";
 import { createBookingCheckoutAction, type BookingActionState } from "@/server/actions/booking";
 import { formatCurrency } from "@/lib/utils";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -11,31 +12,9 @@ const initialState: BookingActionState = {
   message: "",
 };
 
-type BookingFormValues = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  make: string;
-  model: string;
-  year: string;
-  color: string;
-  licensePlate: string;
-  notes: string;
-};
+type BookingFormValues = BookingFormPrefill;
 
-const initialValues: BookingFormValues = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  make: "",
-  model: "",
-  year: "",
-  color: "",
-  licensePlate: "",
-  notes: "",
-};
+const initialValues: BookingFormValues = emptyBookingFormPrefill;
 
 export type BookingFormService = {
   id: string;
@@ -48,9 +27,11 @@ export type BookingFormService = {
 export function BookingForm({
   services,
   dateOptions,
+  devPrefill,
 }: {
   services: BookingFormService[];
   dateOptions: string[];
+  devPrefill?: BookingFormPrefill | null;
 }) {
   const searchParams = useSearchParams();
   const defaultServiceId = searchParams.get("serviceId") ?? services[0]?.id ?? "";
@@ -213,6 +194,17 @@ export function BookingForm({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
+        {devPrefill ? (
+          <div className="md:col-span-2">
+            <button
+              className="button-dev"
+              onClick={() => setValues((current) => applyBookingFormPrefill(current, devPrefill))}
+              type="button"
+            >
+              Dev Only: Use Sample Data
+            </button>
+          </div>
+        ) : null}
         <label className="stack">
           <span className="text-sm font-medium">First name</span>
           <input

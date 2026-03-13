@@ -110,12 +110,23 @@ Core values to set for a functional local setup:
 - `ADMIN_SESSION_SECRET`
 - `RESEND_API_KEY`, `EMAIL_FROM` (and optional `SUPPORT_EMAIL`)
 
+Optional local-only convenience values:
+- `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED`
+- `NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON`
+
 ## 8) Local developer quickstart
 1. Install deps: `npm install`
 2. Apply migrations: `npm run prisma:dev`
 3. Seed defaults (services, availability, admin): `npm run prisma:seed`
 4. Start app: `npm run dev`
 5. Optional containerized path: `docker compose up --build`
+
+### Optional dev booking prefill
+- Add `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true` in `.env.local` to show a `Use sample data` button on `/book`.
+- Set `NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON` to a single JSON object containing customer and vehicle fields:
+  `firstName`, `lastName`, `email`, `phone`, `make`, `model`, `year`, `color`, `licensePlate`, `notes`
+- The helper only fills those text fields; it does not change service, date, or selected time slot.
+- Invalid JSON disables the feature without crashing the page.
 
 ### Stripe CLI for local webhook forwarding (first run vs later runs)
 The app confirms payment through `POST /api/stripe/webhook`, so local development needs Stripe

@@ -1,5 +1,6 @@
 import { addDays, format, startOfDay } from "date-fns";
 import { getPublicServices } from "@/lib/booking";
+import { getDevBookingPrefill } from "@/lib/env";
 import { SiteHeader } from "@/components/layout/site-header";
 import { BookingForm } from "@/components/booking/booking-form";
 
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function BookPage() {
   const services = await getPublicServices();
+  const devPrefill = getDevBookingPrefill();
   const dateOptions = Array.from({ length: 14 }, (_, index) =>
     format(addDays(startOfDay(new Date()), index), "yyyy-MM-dd"),
   );
@@ -26,7 +28,7 @@ export default async function BookPage() {
     <div className="pb-10">
       <SiteHeader />
       <main className="shell py-4 sm:py-8">
-        <BookingForm dateOptions={dateOptions} services={serializedServices} />
+        <BookingForm dateOptions={dateOptions} devPrefill={devPrefill} services={serializedServices} />
       </main>
     </div>
   );
