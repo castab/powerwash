@@ -41,9 +41,9 @@ Production-oriented mobile-first car wash booking application built with Next.js
 
 - Customer-facing booking flow
 - Service browsing and live slot lookup
-- Deposit-only Stripe checkout
+- Stripe Checkout for deposit and admin-requested balance collection
 - Stripe webhook confirmation
-- Remaining balance tracked as due in person
+- Remaining balance tracked until paid in full
 - Admin dashboard for services, weekly availability, blackout dates, and bookings
 - Database-level overlap protection using a PostgreSQL exclusion constraint
 - Business-logic overlap validation using serializable transactions
@@ -347,8 +347,8 @@ Because startup uses `AdminUser` existence as the seed sentinel, automatic seed 
 3. Available slots are generated from active weekly availability, blackout dates, and future bookings.
 4. Booking is created in `PENDING_PAYMENT` state with a short payment hold.
 5. Stripe Checkout collects only the deposit.
-6. Stripe webhook marks the booking `CONFIRMED` and payment `PAID`.
-7. Remaining balance stays recorded on the booking as `balanceDue`.
+6. Stripe webhook marks the booking `CONFIRMED` and payment `PARTIALLY_PAID`.
+7. Remaining balance stays recorded on the booking as `balanceDue` until an admin requests and the customer completes a second Checkout session.
 
 ## Dev Booking Prefill
 

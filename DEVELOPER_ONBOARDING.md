@@ -4,7 +4,7 @@
 Powerwash is a production-oriented, mobile-first car wash booking application built with Next.js App Router and a PostgreSQL/Prisma backend. It supports:
 - Customer self-serve booking with deposit checkout.
 - Admin operations for services, availability, blackout windows, and bookings.
-- Stripe webhook-driven booking confirmation.
+- Stripe webhook-driven deposit and balance confirmation.
 - Secure booking management links ("magic links") sent by email.
 
 ## 2) Tech stack at a glance
@@ -25,8 +25,9 @@ Powerwash is a production-oriented, mobile-first car wash booking application bu
 4. Server validates with `bookingSchema`, creates a **held booking** (`PENDING_PAYMENT`) with a short expiration.
 5. Server creates a Stripe Checkout session for the deposit and redirects customer to Stripe.
 6. Stripe sends webhook:
-   - `checkout.session.completed` → booking becomes `CONFIRMED` + `PAID`; initial manage-link email is sent.
+   - `checkout.session.completed` for deposit checkout → booking becomes `CONFIRMED` + `PARTIALLY_PAID`; initial manage-link email is sent.
    - `checkout.session.expired` → held booking is canceled/failed.
+7. Later, an admin can request the remaining balance through a second Stripe Checkout session; that webhook marks the booking paid in full without auto-completing the service.
 7. Customer returns to confirmation page.
 
 ### Admin path
@@ -39,7 +40,7 @@ Powerwash is a production-oriented, mobile-first car wash booking application bu
 ### Data model for scheduling
 - `AvailabilityRule`: recurring weekly windows (day-of-week + start/end times).
 - `BlackoutDate`: one-off blocked time ranges.
-- `Booking`: stores appointment interval (`startAt`/`endAt`), status, payment state, and hold expiration.
+- `Booking`: stores appointment interval (`startAt`/`endAt`), payment lifecycle for deposit + balance, and hold expiration.
 
 ### Slot generation (`getAvailableSlots`)
 - Slot interval granularity is **15 minutes**.
@@ -61,8 +62,9 @@ The app applies **multiple safeguards** to prevent double-booking:
 ### Booking hold and payment semantics
 - New bookings start as `PENDING_PAYMENT` with `paymentExpiresAt = now + 30 min`.
 - Deposit and balance split are saved immediately (`totalPrice`, `depositAmount`, `balanceDue`).
-- If checkout completes in time, webhook promotes booking to `CONFIRMED` + `PAID`.
+- If deposit checkout completes in time, webhook promotes booking to `CONFIRMED` + `PARTIALLY_PAID`.
 - If checkout expires, webhook marks booking `CANCELLED` + `FAILED`.
+- If an admin later requests the remaining balance and that checkout completes, webhook promotes payment state to `PAID` and zeros `balanceDue`.
 
 ## 5) Magic link generation + rotation logic (important)
 
@@ -158,7 +160,7 @@ promoted from `PENDING_PAYMENT` to `CONFIRMED` after checkout.
 #### Helpful verification signals
 - Stripe CLI logs should show events like `checkout.session.completed` and successful forwards to
   `/api/stripe/webhook`.
-- App-side expected result is booking status transition to `CONFIRMED` and payment status `PAID`.
+- App-side expected result for the first checkout is booking status transition to `CONFIRMED` and payment status `PARTIALLY_PAID`.
 
 Default seed admin credentials (override with env):
 - Email: `admin@example.com`

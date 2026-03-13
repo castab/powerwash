@@ -3,11 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { addMinutes } from "date-fns";
-import { BookingEventType, BookingStatus, PaymentStatus } from "@prisma/client";
+import {
+  BookingEventType,
+  BookingStatus,
+  PaymentStatus,
+  type BalanceRequestDeliveryChannel,
+} from "@prisma/client";
 import { createAdminSession, requireAdmin, verifyPassword } from "@/lib/auth";
-import { getArchivedCustomerAccessEndsAt } from "@/lib/booking-management";
+import { sendBalancePaymentRequest } from "@/lib/balance-payment";
+import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
+import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import {
@@ -15,6 +22,7 @@ import {
   availabilitySchema,
   blackoutSchema,
   bookingAdminUpdateSchema,
+  requestBookingBalanceSchema,
   serviceSchema,
 } from "@/lib/validators";
 import {
@@ -31,6 +39,8 @@ function canArchiveBooking(status: BookingStatus) {
     status === BookingStatus.NO_SHOW
   );
 }
+
+const EMAIL_DELIVERY_CHANNEL: BalanceRequestDeliveryChannel = "EMAIL";
 
 export async function loginAdminAction(_state: { error?: string }, formData: FormData) {
   const parsed = adminLoginSchema.safeParse({
@@ -263,6 +273,116 @@ export async function updateBookingAction(formData: FormData) {
   revalidatePath("/booking/confirmation");
 }
 
+export async function requestBookingBalanceAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const parsed = requestBookingBalanceSchema.safeParse({
+    bookingId: formData.get("bookingId"),
+    deliveryChannel: formData.get("deliveryChannel"),
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid balance request.");
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: parsed.data.bookingId },
+    include: { service: true },
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  if (booking.archivedAt) {
+    throw new Error("Archived bookings cannot request balance payments.");
+  }
+
+  if (booking.status !== BookingStatus.CONFIRMED) {
+    throw new Error("Only confirmed bookings can request the remaining balance.");
+  }
+
+  if (booking.paymentStatus !== PaymentStatus.PARTIALLY_PAID) {
+    throw new Error("This booking is not awaiting a remaining balance payment.");
+  }
+
+  if (!booking.balanceDue.gt(0)) {
+    throw new Error("This booking does not have any remaining balance due.");
+  }
+
+  const deliveryChannel = parsed.data.deliveryChannel as BalanceRequestDeliveryChannel;
+  if (deliveryChannel !== EMAIL_DELIVERY_CHANNEL) {
+    throw new Error("That delivery channel is not available yet.");
+  }
+
+  const beforeState = pickBookingEventState(booking);
+  const nextVersion = booking.balanceRequestVersion + 1;
+  const env = getEnv();
+  const manageUrl = getManagementUrlForBooking(booking);
+  const stripe = getStripe();
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      customer_email: booking.email,
+      metadata: {
+        bookingId: booking.id,
+        checkoutPurpose: "balance",
+        balanceRequestVersion: String(nextVersion),
+      },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: toStripeCents(booking.balanceDue),
+            product_data: {
+              name: `${booking.service.name} remaining balance`,
+              description: `Deposit already received: ${booking.depositAmount.toFixed(2)}`,
+            },
+          },
+        },
+      ],
+      success_url: `${env.appUrl}/booking/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: manageUrl ?? `${env.appUrl}/`,
+    },
+    {
+      idempotencyKey: `booking-balance-request-${booking.id}-${nextVersion}`,
+    },
+  );
+
+  if (!session.url) {
+    throw new Error("Stripe did not return a payment link.");
+  }
+
+  const delivery = await sendBalancePaymentRequest({
+    booking,
+    deliveryChannel,
+    checkoutUrl: session.url,
+  });
+
+  const updated = await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      balanceRequestVersion: nextVersion,
+      balanceRequestedAt: new Date(),
+      balanceRequestDeliveryChannel: deliveryChannel,
+      balanceRequestDestination: delivery.destination,
+      balanceCheckoutSessionId: session.id,
+    },
+  });
+
+  await createBookingEvent({
+    bookingId: booking.id,
+    type: BookingEventType.BALANCE_PAYMENT_REQUESTED,
+    actorAdminUserId: admin.id,
+    actorLabel: admin.email,
+    beforeState,
+    afterState: pickBookingEventState(updated),
+  });
+
+  revalidatePath("/admin/bookings");
+  revalidatePath("/booking/manage");
+}
+
 export async function archiveBookingAction(formData: FormData) {
   const admin = await requireAdmin();
   const bookingId = formData.get("bookingId");
@@ -373,7 +493,7 @@ export async function issueBookingRefundAction(formData: FormData) {
     throw new Error("Only canceled bookings can be refunded.");
   }
 
-  if (booking.paymentStatus !== PaymentStatus.PAID) {
+  if (booking.paymentStatus !== PaymentStatus.PARTIALLY_PAID) {
     throw new Error("This booking is not awaiting a refund.");
   }
 

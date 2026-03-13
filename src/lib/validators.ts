@@ -84,3 +84,8 @@ export const bookingAdminUpdateSchema = z.object({
   startAt: z.string().optional(),
   adminNotes: z.string().max(500).optional(),
 });
+
+export const requestBookingBalanceSchema = z.object({
+  bookingId: z.string().min(1),
+  deliveryChannel: z.enum(["EMAIL"]),
+});

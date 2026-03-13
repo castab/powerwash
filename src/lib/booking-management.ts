@@ -152,6 +152,10 @@ export function getBookingManagementMessageCode(
     return "cannot_cancel_terminal";
   }
 
+  if (booking.paymentStatus === PaymentStatus.PAID) {
+    return "cannot_cancel_terminal";
+  }
+
   return canAutoRefundBooking(booking.startAt) ? "auto_refund_available" : "manual_refund_only";
 }
 
@@ -190,6 +194,10 @@ export async function getManagedBookingByToken(token: string) {
 function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
   const serviceDate = formatBookingDateTime(booking.startAt);
   const supportCopy = getSupportCopy();
+  const balanceCopy =
+    booking.paymentStatus === PaymentStatus.PAID
+      ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
+      : `Remaining balance: ${formatCurrency(booking.balanceDue)}`;
 
   return {
     subject: `Manage your ${booking.service.name} booking`,
@@ -198,6 +206,7 @@ function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
       "",
       `Your ${booking.service.name} booking for ${serviceDate} is confirmed.`,
       `Deposit paid: ${formatCurrency(booking.depositAmount)}`,
+      balanceCopy,
       "",
       "Use the secure link below to view or cancel your booking:",
       manageUrl,
@@ -209,7 +218,7 @@ function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
         <p>Hi ${booking.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> is confirmed.</p>
-        <p>Deposit paid: <strong>${formatCurrency(booking.depositAmount)}</strong></p>
+        <p>Deposit paid: <strong>${formatCurrency(booking.depositAmount)}</strong><br />${balanceCopy}</p>
         <p>Use the secure link below to view or cancel your booking:</p>
         <p><a href="${manageUrl}">${manageUrl}</a></p>
         <p>Cancellations made at least 24 hours before the appointment receive an automatic refund of the deposit.</p>

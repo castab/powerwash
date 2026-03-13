@@ -9,6 +9,7 @@ import {
 import {
   archiveBookingAction,
   issueBookingRefundAction,
+  requestBookingBalanceAction,
   unarchiveBookingAction,
   updateBookingAction,
 } from "@/server/actions/admin";
@@ -51,6 +52,14 @@ function formatBusinessTime(date: Date) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatDeliveryChannel(channel: string | null) {
+  if (!channel) {
+    return null;
+  }
+
+  return channel === "EMAIL" ? "Email on file" : channel.replaceAll("_", " ").toLowerCase();
 }
 
 function BookingEvents({ booking }: { booking: AdminBooking }) {
@@ -97,6 +106,11 @@ function BookingCard({
         <p className="text-muted">
           Status {booking.status} / Payment {booking.paymentStatus}
         </p>
+        {booking.balanceRequestedAt ? (
+          <p className="text-muted">
+            Balance request sent {formatBusinessDateTime(booking.balanceRequestedAt)}
+          </p>
+        ) : null}
         {archived && booking.archivedAt ? (
           <p className="text-muted">
             Archived {formatBusinessDateTime(booking.archivedAt)} by{" "}
@@ -136,7 +150,25 @@ function BookingCard({
           <div className="space-y-1">
             <p className="font-semibold">Payment</p>
             <p className="text-muted">Deposit {formatCurrency(booking.depositAmount)}</p>
-            <p className="text-muted">Balance due {formatCurrency(booking.balanceDue)}</p>
+            <p className="text-muted">
+              {booking.paymentStatus === "PAID"
+                ? `Paid in full ${formatCurrency(booking.totalPrice)}`
+                : `Balance due ${formatCurrency(booking.balanceDue)}`}
+            </p>
+            {booking.balanceRequestedAt ? (
+              <p className="text-muted">
+                Requested via {formatDeliveryChannel(booking.balanceRequestDeliveryChannel) ?? "Unknown"} on{" "}
+                {formatBusinessDateTime(booking.balanceRequestedAt)}
+              </p>
+            ) : null}
+            {booking.balanceRequestDestination ? (
+              <p className="text-muted break-all">{booking.balanceRequestDestination}</p>
+            ) : null}
+            {booking.balancePaidAt ? (
+              <p className="text-muted">
+                Balance paid {formatBusinessDateTime(booking.balancePaidAt)}
+              </p>
+            ) : null}
           </div>
 
           {booking.paymentStatus === "REFUNDED" && booking.refundedAt ? (
@@ -207,8 +239,30 @@ function BookingCard({
             </form>
           ) : null}
 
+          {!archived &&
+          booking.status === "CONFIRMED" &&
+          booking.paymentStatus === "PARTIALLY_PAID" &&
+          booking.balanceDue.gt(0) ? (
+            <form action={requestBookingBalanceAction} className="grid gap-3">
+              <input name="bookingId" type="hidden" value={booking.id} />
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Send payment link by</span>
+                <select
+                  className="field"
+                  defaultValue="EMAIL"
+                  name="deliveryChannel"
+                >
+                  <option value="EMAIL">Email on file</option>
+                </select>
+              </label>
+              <SubmitButton className="w-full justify-center">
+                {booking.balanceRequestedAt ? "Resend payment request" : "Request remaining balance"}
+              </SubmitButton>
+            </form>
+          ) : null}
+
           {booking.status === "CANCELLED" &&
-          booking.paymentStatus === "PAID" &&
+          booking.paymentStatus === "PARTIALLY_PAID" &&
           booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" &&
           booking.stripePaymentIntentId &&
           !archived ? (
@@ -242,7 +296,7 @@ function BookingCard({
   return (
     <div className="rounded-[24px] border border-line bg-surface p-4" key={booking.id}>
       {booking.status === "CANCELLED" &&
-      booking.paymentStatus === "PAID" &&
+      booking.paymentStatus === "PARTIALLY_PAID" &&
       booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" ? (
         <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <p className="font-semibold">Late cancellation awaiting refund decision</p>

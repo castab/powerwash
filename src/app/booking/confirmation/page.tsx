@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
-import { BookingStatus } from "@prisma/client";
+import { BookingStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { getManagementUrlForBooking } from "@/lib/booking-management";
@@ -25,6 +25,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.retrieve(sessionId);
   const bookingId = session.metadata?.bookingId;
+  const checkoutPurpose = session.metadata?.checkoutPurpose ?? "deposit";
 
   if (!bookingId) {
     notFound();
@@ -42,20 +43,29 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
   }
 
   const manageUrl = getManagementUrlForBooking(booking);
-  const isFinalizing = booking.status === BookingStatus.PENDING_PAYMENT || !manageUrl;
+  const isDepositFlow = checkoutPurpose === "deposit";
+  const isFinalizing = isDepositFlow && (booking.status === BookingStatus.PENDING_PAYMENT || !manageUrl);
+  const title = isFinalizing
+    ? "Payment received, finalizing booking"
+    : isDepositFlow
+      ? "Deposit received"
+      : booking.paymentStatus === PaymentStatus.PAID
+        ? "Balance payment received"
+        : "Payment received";
+  const description = isFinalizing
+    ? "Stripe accepted the payment. We are waiting for the confirmation webhook to finish creating your management link."
+    : isDepositFlow
+      ? `Your booking is held for ${booking.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is still outstanding until service day.`
+      : booking.paymentStatus === PaymentStatus.PAID
+        ? `Stripe accepted the remaining balance for ${booking.firstName}. Your booking is now paid in full.`
+        : `Stripe accepted the payment for ${booking.firstName}. Refresh this page if the booking has not updated yet.`;
 
   return (
     <main className="shell py-8">
       <div className="panel mx-auto max-w-3xl p-6 sm:p-8">
         <p className="badge">Booking confirmation</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-          {isFinalizing ? "Payment received, finalizing booking" : "Deposit received"}
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          {isFinalizing
-            ? "Stripe accepted the payment. We are waiting for the confirmation webhook to finish creating your management link."
-            : `Your booking is held for ${booking.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is due in person at check-in.`}
-        </p>
+        <h1 className="mt-4 text-3xl font-semibold tracking-tight">{title}</h1>
+        <p className="mt-3 text-sm leading-6 text-muted">{description}</p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="rounded-[24px] bg-surface p-5">
@@ -72,7 +82,11 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
           <div className="rounded-[24px] bg-surface p-5">
             <p className="text-sm text-muted">Payment summary</p>
             <p className="mt-2 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
-            <p className="mt-1 text-sm">Balance due in person: {formatCurrency(booking.balanceDue)}</p>
+            <p className="mt-1 text-sm">
+              {booking.paymentStatus === PaymentStatus.PAID
+                ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
+                : `Balance outstanding: ${formatCurrency(booking.balanceDue)}`}
+            </p>
             <p className="mt-1 text-sm">Booking status: {booking.status.replaceAll("_", " ")}</p>
           </div>
         </div>
@@ -84,7 +98,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
               Refresh this page in a few seconds to reveal the booking link, or use the email once it arrives.
             </p>
           </div>
-        ) : (
+        ) : manageUrl ? (
           <div className="mt-6 rounded-[24px] border border-line bg-surface p-5">
             <p className="text-sm font-semibold">Bookmark your management link</p>
             <p className="mt-2 text-sm text-muted">
@@ -99,7 +113,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
               {manageUrl}
             </p>
           </div>
-        )}
+        ) : null}
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           {isFinalizing ? (

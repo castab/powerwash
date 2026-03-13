@@ -327,8 +327,8 @@ export function BookingForm({
 
       <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm leading-6 text-muted">
-          Deposit is charged now through Stripe. Remaining balance is due in person at the
-          appointment.
+          Deposit is charged now through Stripe. Any remaining balance stays outstanding on the
+          booking until it is collected later.
         </p>
         <SubmitButton>Continue to deposit payment</SubmitButton>
       </div>

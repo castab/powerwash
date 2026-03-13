@@ -19,15 +19,24 @@ enum BookingStatus {
 enum PaymentStatus {
   UNPAID
   PENDING
+  PARTIALLY_PAID
   PAID
   REFUNDED
   FAILED
+}
+
+enum BalanceRequestDeliveryChannel {
+  EMAIL
+  SMS
 }
 
 enum BookingEventType {
   BOOKING_CREATED
   PAYMENT_CONFIRMED
   PAYMENT_FAILED
+  BALANCE_PAYMENT_REQUESTED
+  BALANCE_PAYMENT_CONFIRMED
+  BALANCE_PAYMENT_FAILED
   BOOKING_UPDATED
   BOOKING_CANCELLED
   BOOKING_RESCHEDULED
@@ -86,6 +95,13 @@ model Booking {
   refundReason            String?
   refundedAt              DateTime?
   stripeRefundId          String?       @unique
+  balanceRequestVersion   Int           @default(0)
+  balanceRequestedAt      DateTime?
+  balanceRequestDeliveryChannel BalanceRequestDeliveryChannel?
+  balanceRequestDestination String?
+  balanceCheckoutSessionId String?      @unique
+  balancePaymentIntentId  String?       @unique
+  balancePaidAt           DateTime?
   archivedAt              DateTime?
   archivedByAdminUserId   String?
   customerAccessEndsAt    DateTime?

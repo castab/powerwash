@@ -113,19 +113,18 @@ export function toBusinessDateTimeLocalValue(date: Date) {
 }
 
 export function parseBusinessDateTimeLocalValue(value: string) {
-  const match = value.match(
-    /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})T(?<hour>\d{2}):(?<minute>\d{2})$/,
-  );
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
 
-  if (!match?.groups) {
+  if (!match) {
     return new Date(value);
   }
 
-  const year = Number(match.groups.year);
-  const month = Number(match.groups.month);
-  const day = Number(match.groups.day);
-  const hour = Number(match.groups.hour);
-  const minute = Number(match.groups.minute);
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
 
   let utcMs = Date.UTC(year, month - 1, day, hour, minute);
 

@@ -120,7 +120,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
   const canCancel =
     !booking.archivedAt &&
     booking.status === BookingStatus.CONFIRMED &&
-    booking.paymentStatus === PaymentStatus.PAID;
+    booking.paymentStatus === PaymentStatus.PARTIALLY_PAID;
   const isArchived = Boolean(booking.archivedAt);
 
   return (
@@ -180,7 +180,21 @@ export default async function BookingManagePage({ searchParams }: Props) {
             <p className="mt-2 text-sm">Status: {booking.status.replaceAll("_", " ")}</p>
             <p className="mt-1 text-sm">Payment: {booking.paymentStatus.replaceAll("_", " ")}</p>
             <p className="mt-1 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
-            <p className="mt-1 text-sm">Balance due in person: {formatCurrency(booking.balanceDue)}</p>
+            <p className="mt-1 text-sm">
+              {booking.paymentStatus === PaymentStatus.PAID
+                ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
+                : `Balance outstanding: ${formatCurrency(booking.balanceDue)}`}
+            </p>
+            {booking.balanceRequestedAt ? (
+              <p className="mt-1 text-sm">
+                Payment link sent on {format(booking.balanceRequestedAt, "MMM d, yyyy h:mm a")}
+              </p>
+            ) : null}
+            {booking.balancePaidAt ? (
+              <p className="mt-1 text-sm">
+                Balance paid on {format(booking.balancePaidAt, "MMM d, yyyy h:mm a")}
+              </p>
+            ) : null}
             {booking.refundedAt ? (
               <p className="mt-1 text-sm">
                 Refunded {formatCurrency(booking.refundAmount ?? 0)} on{" "}

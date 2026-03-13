@@ -60,7 +60,10 @@ async function cancelManagedBooking(token: string, confirmedInsideWindow: boolea
     redirect(buildManageRedirect(token, { error: "archived_view_only" }));
   }
 
-  if (booking.status !== BookingStatus.CONFIRMED || booking.paymentStatus !== PaymentStatus.PAID) {
+  if (
+    booking.status !== BookingStatus.CONFIRMED ||
+    booking.paymentStatus !== PaymentStatus.PARTIALLY_PAID
+  ) {
     redirect(buildManageRedirect(token, { error: "not_cancellable" }));
   }
 
@@ -190,6 +193,7 @@ export async function createBookingCheckoutAction(
       customer_email: booking.email,
       metadata: {
         bookingId: booking.id,
+        checkoutPurpose: "deposit",
       },
       line_items: [
         {
@@ -199,7 +203,7 @@ export async function createBookingCheckoutAction(
             unit_amount: toStripeCents(booking.depositAmount),
             product_data: {
               name: `${booking.service.name} deposit`,
-              description: `Remaining balance due in person: ${formatCurrency(booking.balanceDue)}`,
+              description: `Remaining balance outstanding after deposit: ${formatCurrency(booking.balanceDue)}`,
             },
           },
         },
