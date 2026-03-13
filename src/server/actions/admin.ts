@@ -17,7 +17,12 @@ import {
   bookingAdminUpdateSchema,
   serviceSchema,
 } from "@/lib/validators";
-import { slugify, toMoneyDecimal, toStripeCents } from "@/lib/utils";
+import {
+  parseBusinessDateTimeLocalValue,
+  slugify,
+  toMoneyDecimal,
+  toStripeCents,
+} from "@/lib/utils";
 
 function canArchiveBooking(status: BookingStatus) {
   return (
@@ -221,7 +226,7 @@ export async function updateBookingAction(formData: FormData) {
   }
 
   if (parsed.data.startAt) {
-    const startAt = new Date(parsed.data.startAt);
+    const startAt = parseBusinessDateTimeLocalValue(parsed.data.startAt);
     if (startAt.getTime() !== booking.startAt.getTime()) {
       data.startAt = startAt;
       data.endAt = addMinutes(startAt, booking.service.durationMinutes);

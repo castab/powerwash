@@ -1,7 +1,11 @@
-import { format } from "date-fns";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { getAdminBookings, type AdminBooking } from "@/lib/booking";
-import { formatCurrency } from "@/lib/utils";
+import {
+  formatCurrency,
+  formatInBusinessTimeZone,
+  parseBusinessDateTimeLocalValue,
+  toBusinessDateTimeLocalValue,
+} from "@/lib/utils";
 import {
   archiveBookingAction,
   issueBookingRefundAction,
@@ -14,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 function groupByDay<T extends { startAt: Date }>(items: T[]) {
   return items.reduce<Record<string, T[]>>((accumulator, item) => {
-    const key = format(item.startAt, "yyyy-MM-dd");
+    const key = toBusinessDateTimeLocalValue(item.startAt).slice(0, 10);
     accumulator[key] ??= [];
     accumulator[key].push(item);
     return accumulator;
@@ -23,6 +27,30 @@ function groupByDay<T extends { startAt: Date }>(items: T[]) {
 
 function formatEventType(type: string) {
   return type.replaceAll("_", " ").toLowerCase();
+}
+
+function formatBusinessDate(date: Date) {
+  return formatInBusinessTimeZone(date, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function formatBusinessDateTime(date: Date) {
+  return formatInBusinessTimeZone(date, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatBusinessTime(date: Date) {
+  return formatInBusinessTimeZone(date, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function BookingEvents({ booking }: { booking: AdminBooking }) {
@@ -38,7 +66,7 @@ function BookingEvents({ booking }: { booking: AdminBooking }) {
           <div className="border-t border-line pt-3 first:border-t-0 first:pt-0" key={event.id}>
             <p className="font-medium">
               {formatEventType(event.type)}{" "}
-              <span className="text-muted">on {format(event.createdAt, "MMM d, h:mm a")}</span>
+              <span className="text-muted">on {formatBusinessDateTime(event.createdAt)}</span>
             </p>
             <p className="text-muted">
               {event.actorAdminUser?.email ?? event.actorLabel ?? "system"}
@@ -57,52 +85,99 @@ function BookingCard({
   booking: AdminBooking;
   archived?: boolean;
 }) {
-  return (
-    <div className="rounded-[24px] border border-line bg-surface p-4" key={booking.id}>
-      {booking.status === "CANCELLED" &&
-      booking.paymentStatus === "PAID" &&
-      booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" ? (
-        <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-semibold">Late cancellation awaiting refund decision</p>
-          <p className="mt-1">
-            This booking was canceled inside 24 hours. The deposit is still marked as paid until an
-            admin issues the refund.
+  const summary = (
+    <>
+      <div className="min-w-0 space-y-1 text-sm">
+        <p className="font-semibold">
+          {formatBusinessTime(booking.startAt)} - {booking.service.name}
+        </p>
+        <p className="text-muted">
+          {booking.firstName} {booking.lastName} | {booking.vehicleMake} {booking.vehicleModel}
+        </p>
+        <p className="text-muted">
+          Status {booking.status} / Payment {booking.paymentStatus}
+        </p>
+        {archived && booking.archivedAt ? (
+          <p className="text-muted">
+            Archived {formatBusinessDateTime(booking.archivedAt)} by{" "}
+            {booking.archivedByAdminUser?.email ?? "unknown admin"}
           </p>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
+      <div className="shrink-0 text-right text-sm text-muted">
+        <span className="group-open:hidden">View details</span>
+        <span className="hidden group-open:inline">Hide details</span>
+      </div>
+    </>
+  );
 
+  const details = (
+    <>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-1 text-sm">
-          <p className="font-semibold">
-            {format(booking.startAt, "h:mm a")} - {booking.service.name}
-          </p>
-          <p className="text-muted">
-            {booking.firstName} {booking.lastName} | {booking.vehicleMake} {booking.vehicleModel}
-          </p>
-          <p className="text-muted">{booking.phone}</p>
-          <p className="text-muted">
-            Deposit {formatCurrency(booking.depositAmount)}, balance due{" "}
-            {formatCurrency(booking.balanceDue)}
-          </p>
-          <p className="text-muted">
-            Status {booking.status} / Payment {booking.paymentStatus}
-          </p>
+        <div className="grid min-w-0 gap-4 text-sm sm:grid-cols-2">
+          <div className="space-y-1">
+            <p className="font-semibold">Contact</p>
+            <p className="text-muted">{booking.phone}</p>
+            <p className="text-muted break-all">{booking.email}</p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="font-semibold">Vehicle</p>
+            <p className="text-muted">
+              {booking.vehicleYear ? `${booking.vehicleYear} ` : ""}
+              {booking.vehicleMake} {booking.vehicleModel}
+            </p>
+            <p className="text-muted">
+              {booking.vehicleColor || "Color not provided"}
+              {booking.vehicleLicensePlate ? ` | Plate ${booking.vehicleLicensePlate}` : ""}
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="font-semibold">Payment</p>
+            <p className="text-muted">Deposit {formatCurrency(booking.depositAmount)}</p>
+            <p className="text-muted">Balance due {formatCurrency(booking.balanceDue)}</p>
+          </div>
+
           {booking.paymentStatus === "REFUNDED" && booking.refundedAt ? (
-            <p className="text-muted">
-              Refund issued {formatCurrency(booking.refundAmount ?? 0)} on{" "}
-              {format(booking.refundedAt, "MMM d, h:mm a")}
-            </p>
+            <div className="space-y-1">
+              <p className="font-semibold">Refund</p>
+              <p className="text-muted">
+                {formatCurrency(booking.refundAmount ?? 0)} issued on{" "}
+                {formatBusinessDateTime(booking.refundedAt)}
+              </p>
+            </div>
           ) : null}
+
           {archived && booking.archivedAt ? (
-            <p className="text-muted">
-              Archived {format(booking.archivedAt, "MMM d, h:mm a")} by{" "}
-              {booking.archivedByAdminUser?.email ?? "unknown admin"}
-            </p>
+            <div className="space-y-1">
+              <p className="font-semibold">Archive</p>
+              <p className="text-muted">
+                Archived {formatBusinessDateTime(booking.archivedAt)} by{" "}
+                {booking.archivedByAdminUser?.email ?? "unknown admin"}
+              </p>
+            </div>
           ) : null}
+
           {archived && booking.customerAccessEndsAt ? (
-            <p className="text-muted">
-              Customer link access ends {format(booking.customerAccessEndsAt, "MMM d, yyyy")}
-            </p>
+            <div className="space-y-1">
+              <p className="font-semibold">Customer access</p>
+              <p className="text-muted">
+                Ends{" "}
+                {formatInBusinessTimeZone(booking.customerAccessEndsAt, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </p>
+            </div>
+          ) : null}
+
+          {booking.adminNotes ? (
+            <div className="space-y-1 sm:col-span-2">
+              <p className="font-semibold">Admin notes</p>
+              <p className="whitespace-pre-wrap text-muted">{booking.adminNotes}</p>
+            </div>
           ) : null}
         </div>
 
@@ -112,7 +187,7 @@ function BookingCard({
               <input name="bookingId" type="hidden" value={booking.id} />
               <input
                 className="field"
-                defaultValue={booking.startAt.toISOString().slice(0, 16)}
+                defaultValue={toBusinessDateTimeLocalValue(booking.startAt)}
                 name="startAt"
                 type="datetime-local"
               />
@@ -161,6 +236,29 @@ function BookingCard({
       </div>
 
       <BookingEvents booking={booking} />
+    </>
+  );
+
+  return (
+    <div className="rounded-[24px] border border-line bg-surface p-4" key={booking.id}>
+      {booking.status === "CANCELLED" &&
+      booking.paymentStatus === "PAID" &&
+      booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" ? (
+        <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Late cancellation awaiting refund decision</p>
+          <p className="mt-1">
+            This booking was canceled inside 24 hours. The deposit is still marked as paid until an
+            admin issues the refund.
+          </p>
+        </div>
+      ) : null}
+
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-[20px] text-left marker:hidden">
+          {summary}
+        </summary>
+        <div className="mt-4 border-t border-line pt-4">{details}</div>
+      </details>
     </div>
   );
 }
@@ -174,57 +272,15 @@ export default async function AdminBookingsPage() {
       title="Bookings"
       description="See current reservations, archive finished work out of the default view, and keep a visible event history for each booking."
     >
-      <section className="panel min-w-0 overflow-hidden">
-        <div className="border-b border-line px-5 py-4">
-          <h2 className="text-lg font-semibold">Upcoming list</h2>
-        </div>
-        <div className="p-3 sm:p-5">
-          <div className="overflow-x-auto rounded-[22px] border border-line bg-surface">
-            <table className="min-w-[720px] text-left text-sm">
-              <thead className="text-muted">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Customer</th>
-                  <th className="px-5 py-3 font-medium">Service</th>
-                  <th className="px-5 py-3 font-medium">Time</th>
-                  <th className="px-5 py-3 font-medium">Deposit</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {active.map((booking) => (
-                  <tr className="border-t border-line" key={booking.id}>
-                    <td className="px-5 py-4">
-                      <p className="font-medium">
-                        {booking.firstName} {booking.lastName}
-                      </p>
-                      <p className="text-muted">{booking.phone}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <p className="font-medium">{booking.service.name}</p>
-                      <p className="text-muted">
-                        {booking.vehicleMake} {booking.vehicleModel}
-                      </p>
-                    </td>
-                    <td className="px-5 py-4">{format(booking.startAt, "MMM d, h:mm a")}</td>
-                    <td className="px-5 py-4">
-                      {formatCurrency(booking.depositAmount)} / {booking.paymentStatus}
-                    </td>
-                    <td className="px-5 py-4">{booking.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
       <section className="stack">
         {Object.entries(grouped).map(([day, dayBookings]) => (
           <div className="panel min-w-0 p-5" key={day}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="badge">Calendar view</p>
-                <h2 className="mt-2 text-xl font-semibold">{format(new Date(day), "EEEE, MMMM d")}</h2>
+                <h2 className="mt-2 text-xl font-semibold">
+                  {formatBusinessDate(parseBusinessDateTimeLocalValue(`${day}T12:00`))}
+                </h2>
               </div>
               <p className="text-sm text-muted">{dayBookings.length} bookings</p>
             </div>
