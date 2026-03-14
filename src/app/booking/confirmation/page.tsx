@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { BookingStatus, PaymentStatus } from "@prisma/client";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { getManagementUrlForBooking } from "@/lib/booking-management";
 import { formatCurrency } from "@/lib/utils";
+import { reconcileBookingConfirmationAction } from "@/server/actions/booking";
 
 export const dynamic = "force-dynamic";
 
@@ -44,18 +46,35 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
 
   const manageUrl = getManagementUrlForBooking(booking);
   const isDepositFlow = checkoutPurpose === "deposit";
+  const sessionCompleted = session.status === "complete" && session.payment_status === "paid";
+  const sessionExpired = session.status === "expired";
   const isFinalizing = isDepositFlow && (booking.status === BookingStatus.PENDING_PAYMENT || !manageUrl);
+  const needsBalanceSync =
+    !isDepositFlow &&
+    sessionCompleted &&
+    booking.paymentStatus !== PaymentStatus.PAID;
+  const canRetryReconciliation =
+    (sessionCompleted && (isFinalizing || needsBalanceSync)) ||
+    (sessionExpired &&
+      ((isDepositFlow && booking.status === BookingStatus.PENDING_PAYMENT) ||
+        (!isDepositFlow &&
+          booking.paymentStatus === PaymentStatus.PARTIALLY_PAID &&
+          booking.balanceCheckoutSessionId === session.id)));
   const title = isFinalizing
-    ? "Payment received, finalizing booking"
+    ? "Payment processing"
     : isDepositFlow
       ? "Deposit received"
+      : needsBalanceSync
+        ? "Balance payment processing"
       : booking.paymentStatus === PaymentStatus.PAID
         ? "Balance payment received"
         : "Payment received";
   const description = isFinalizing
-    ? "Stripe accepted the payment. We are waiting for the confirmation webhook to finish creating your management link."
+    ? "Stripe completed the checkout, but your booking is still processing. Use the button below to check whether the payment has been applied yet."
     : isDepositFlow
       ? `Your booking is held for ${booking.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is still outstanding until service day.`
+      : needsBalanceSync
+        ? `Stripe completed the balance checkout for ${booking.firstName}, but the booking has not updated yet. Use the button below to check for the latest payment status.`
       : booking.paymentStatus === PaymentStatus.PAID
         ? `Stripe accepted the remaining balance for ${booking.firstName}. Your booking is now paid in full.`
         : `Stripe accepted the payment for ${booking.firstName}. Refresh this page if the booking has not updated yet.`;
@@ -116,10 +135,11 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
         ) : null}
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          {isFinalizing ? (
-            <Link className="button-primary" href={`/booking/confirmation?session_id=${encodeURIComponent(sessionId)}`}>
-              Refresh confirmation
-            </Link>
+          {canRetryReconciliation ? (
+            <form action={reconcileBookingConfirmationAction}>
+              <input name="sessionId" type="hidden" value={sessionId} />
+              <SubmitButton>Check payment status</SubmitButton>
+            </form>
           ) : null}
           <Link className="button-secondary" href="/">
             Back to home

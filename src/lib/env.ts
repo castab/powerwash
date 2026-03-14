@@ -20,6 +20,23 @@ function readEnv(key: string, fallback = "") {
   return fallback;
 }
 
+function readOptionalPositiveIntEnv(key: string, fallback: number) {
+  const value = process.env[key];
+
+  if (!value || value.length === 0) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    console.warn(`Invalid environment variable: ${key}. Expected a positive integer.`);
+    return fallback;
+  }
+
+  return parsed;
+}
+
 export function getEnv() {
   const emailFrom = readEnv("EMAIL_FROM");
   const supportEmail = process.env.SUPPORT_EMAIL ?? emailFrom;
@@ -35,6 +52,14 @@ export function getEnv() {
     adminSessionSecret: readEnv("ADMIN_SESSION_SECRET", "change-me"),
     manageLinkSecret: readEnv("MANAGE_LINK_SECRET", "change-me-manage-link"),
     resendApiKey: readEnv("RESEND_API_KEY"),
+    confirmationReconcileDebounceMs: readOptionalPositiveIntEnv(
+      "CONFIRMATION_RECONCILE_DEBOUNCE_MS",
+      30_000,
+    ),
+    confirmationReconcileMapMaxSize: readOptionalPositiveIntEnv(
+      "CONFIRMATION_RECONCILE_MAP_MAX_SIZE",
+      1_000,
+    ),
     emailFrom,
     supportEmail,
   };

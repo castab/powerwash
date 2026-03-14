@@ -12,6 +12,7 @@ import {
   rotateAndSendManageBookingEmail,
   sendCancellationOutcomeEmail,
 } from "@/lib/booking-management";
+import { reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
@@ -21,6 +22,39 @@ export type BookingActionState = {
   status: "idle" | "error";
   message: string;
 };
+
+const recentConfirmationReconciliations = new Map<string, number>();
+
+function getConfirmationReconcileConfig() {
+  const env = getEnv();
+
+  return {
+    debounceMs: env.confirmationReconcileDebounceMs,
+    mapMaxSize: env.confirmationReconcileMapMaxSize,
+  };
+}
+
+function pruneRecentConfirmationReconciliations(
+  now: number,
+  config: ReturnType<typeof getConfirmationReconcileConfig>,
+) {
+  for (const [sessionId, attemptedAt] of recentConfirmationReconciliations) {
+    if (now - attemptedAt >= config.debounceMs) {
+      recentConfirmationReconciliations.delete(sessionId);
+    }
+  }
+
+  if (recentConfirmationReconciliations.size < config.mapMaxSize) {
+    return;
+  }
+
+  const entries = [...recentConfirmationReconciliations.entries()].sort((a, b) => a[1] - b[1]);
+  const overflowCount = recentConfirmationReconciliations.size - config.mapMaxSize + 1;
+
+  for (const [sessionId] of entries.slice(0, overflowCount)) {
+    recentConfirmationReconciliations.delete(sessionId);
+  }
+}
 
 function buildManageRedirect(token: string, params: Record<string, string>) {
   const searchParams = new URLSearchParams({ token, ...params });
@@ -267,4 +301,34 @@ export async function resendManagedBookingLinkAction(token: string) {
 
     redirect(buildManageRedirect(token, { error: "resend_failed" }));
   }
+}
+
+export async function reconcileBookingConfirmationAction(formData: FormData) {
+  const sessionId = formData.get("sessionId");
+
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    redirect("/booking/confirmation");
+  }
+
+  const now = Date.now();
+  const config = getConfirmationReconcileConfig();
+  pruneRecentConfirmationReconciliations(now, config);
+  const lastAttemptAt = recentConfirmationReconciliations.get(sessionId) ?? 0;
+
+  if (now - lastAttemptAt >= config.debounceMs) {
+    recentConfirmationReconciliations.set(sessionId, now);
+
+    const result = await reconcileCheckoutSession({
+      sessionId,
+      trigger: "booking-confirmation",
+    });
+
+    if (result.stateChanged) {
+      revalidatePath("/booking/confirmation");
+      revalidatePath("/booking/manage");
+      revalidatePath("/admin/bookings");
+    }
+  }
+
+  redirect(`/booking/confirmation?session_id=${encodeURIComponent(sessionId)}`);
 }
