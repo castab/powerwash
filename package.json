@@ -6,6 +6,8 @@
     "dev": "next dev",
     "dev:docker": "next dev --webpack --hostname 0.0.0.0",
     "build": "next build",
+    "build:app": "next build",
+    "build:vercel": "node ./scripts/vercel-build.mjs",
     "start": "next start",
     "test": "node --experimental-strip-types src/lib/booking-prefill.test.ts",
     "start:railway": "sh ./scripts/start.sh",

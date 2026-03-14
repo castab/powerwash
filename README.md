@@ -333,6 +333,38 @@ npm run prisma:seed
 
 Because startup uses `AdminUser` existence as the seed sentinel, automatic seed will not rerun while admin users remain present.
 
+## Vercel Deployment
+
+Vercel does not run the Railway startup script, so this repo includes a dedicated Vercel build command in [vercel.json](h:\GitHub\powerwash\vercel.json).
+
+During Vercel builds it runs the equivalent bootstrap sequence:
+
+1. Validate required environment variables.
+2. Generate the Prisma client.
+3. Run `prisma migrate deploy`.
+4. Check whether bootstrap seed data is needed.
+5. Run the seed script only when no admin users exist.
+6. Run `next build`.
+
+### Required Vercel configuration
+
+Set the same core environment variables used in Railway, especially:
+
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `NEXT_PUBLIC_APP_URL`
+- `ADMIN_SESSION_SECRET`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `SUPPORT_EMAIL`
+
+### Notes
+
+- Vercel applies migrations at build time, not on runtime startup.
+- Seed execution is idempotent because it is gated by the existing `seed:check` script.
+
 ## Admin Auth
 
 - Admin users are stored in PostgreSQL with bcrypt password hashes.
