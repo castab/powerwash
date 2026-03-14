@@ -1,12 +1,16 @@
 import Link from "next/link";
-import { format } from "date-fns";
 import { BookingStatus, PaymentStatus } from "@prisma/client";
 import {
   canAutoRefundBooking,
   getManagedBookingByToken,
   getSupportEmail,
 } from "@/lib/booking-management";
-import { formatCurrency } from "@/lib/utils";
+import {
+  formatBusinessDateLong,
+  formatBusinessDateTimeLong,
+  formatBusinessTime,
+  formatCurrency,
+} from "@/lib/utils";
 import {
   cancelManagedBookingAction,
   resendManagedBookingLinkAction,
@@ -139,7 +143,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             This booking has been archived. You can still view the details, but management actions
             are disabled. Customer access remains available until{" "}
             {booking.customerAccessEndsAt
-              ? format(booking.customerAccessEndsAt, "MMMM d, yyyy")
+              ? formatBusinessDateLong(booking.customerAccessEndsAt)
               : "the retention window ends"}
             .
           </p>
@@ -161,7 +165,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
           <div className="rounded-[24px] bg-surface p-5">
             <p className="text-sm text-muted">Appointment</p>
             <p className="mt-2 text-lg font-semibold">
-              {format(booking.startAt, "EEEE, MMMM d")} at {format(booking.startAt, "h:mm a")}
+              {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
             </p>
             <p className="mt-1 text-sm text-muted">{booking.service.name}</p>
             <p className="mt-4 text-sm text-muted">Vehicle</p>
@@ -187,18 +191,18 @@ export default async function BookingManagePage({ searchParams }: Props) {
             </p>
             {booking.balanceRequestedAt ? (
               <p className="mt-1 text-sm">
-                Payment link sent on {format(booking.balanceRequestedAt, "MMM d, yyyy h:mm a")}
+                Payment link sent on {formatBusinessDateTimeLong(booking.balanceRequestedAt)}
               </p>
             ) : null}
             {booking.balancePaidAt ? (
               <p className="mt-1 text-sm">
-                Balance paid on {format(booking.balancePaidAt, "MMM d, yyyy h:mm a")}
+                Balance paid on {formatBusinessDateTimeLong(booking.balancePaidAt)}
               </p>
             ) : null}
             {booking.refundedAt ? (
               <p className="mt-1 text-sm">
                 Refunded {formatCurrency(booking.refundAmount ?? 0)} on{" "}
-                {format(booking.refundedAt, "MMM d, yyyy h:mm a")}
+                {formatBusinessDateTimeLong(booking.refundedAt)}
               </p>
             ) : null}
             <div className="mt-4 rounded-2xl border border-line bg-white px-4 py-3 text-sm text-muted">
