@@ -12,7 +12,7 @@ Powerwash is a production-oriented, mobile-first car wash booking application bu
 - **Data layer:** PostgreSQL with Prisma ORM.
 - **Validation:** Zod schemas for form/action input.
 - **Payments:** Stripe Checkout + Stripe webhooks.
-- **Email delivery:** Resend API.
+- **Email delivery:** Resend API via direct `fetch` calls.
 - **Admin auth:** Signed JWT session cookie (`jose`) + bcrypt password verification.
 - **Deployment/local:** npm scripts + Docker Compose for local DB/app + optional Stripe CLI helper.
 
@@ -75,16 +75,17 @@ A customer-facing secure URL to `/booking/manage?token=...` used to:
 - Request a fresh rotated management link.
 
 ### How token security works
-- Raw token is 32 random bytes, encoded `base64url`.
-- DB stores **only SHA-256 hash** of token (`manageTokenHash`), never raw token.
-- Lookup is done by hashing incoming token and finding matching booking.
+- Token format is `<base64url-json-payload>.<hmac-signature>`.
+- Payload contains `bookingId`, `manageTokenVersion`, and `manageTokenRotatedAt`.
+- Signature is HMAC-SHA256 using `MANAGE_LINK_SECRET`.
+- DB does not store raw tokens. Rotation is enforced by comparing the signed payload against the current booking version and rotation timestamp.
 
 ### Rotation and email behavior
 - `rotateAndSendManageBookingEmail(bookingId)`:
-  1. Generates new raw token and hash.
-  2. Updates booking hash + rotated timestamp.
-  3. Sends email containing URL with raw token.
-  4. If send fails, hash is reverted (so old link remains valid).
+  1. Increments `manageTokenVersion` and updates `manageTokenRotatedAt`.
+  2. Builds a newly signed token from the current booking state.
+  3. Sends email containing the new management URL.
+  4. If send fails, version/timestamp changes are reverted so the previous link remains valid.
   5. On success, `manageLinkSentAt` is updated.
 - `ensureInitialManageBookingEmail` ensures first manage link is sent once after successful payment confirmation.
 - Resend action rotates token again, invalidating previous links.
@@ -100,7 +101,7 @@ A customer-facing secure URL to `/booking/manage?token=...` used to:
 - `src/server/actions/booking.ts` – booking action, Stripe checkout creation, and manage-link cancellation/resend actions.
 - `src/app/api/availability/route.ts` – slot API.
 - `src/app/api/stripe/webhook/route.ts` – webhook state transitions + initial manage-email trigger.
-- `src/lib/booking-management.ts` – token hashing/rotation/email and cancellation message codes.
+- `src/lib/booking-management.ts` – signed manage-link generation/rotation, email sending, and cancellation message codes.
 - `src/server/actions/admin.ts` – admin CRUD and manual refund action.
 - `prisma/schema.prisma` + migrations – data model and DB-level constraints.
 
@@ -109,8 +110,12 @@ Core values to set for a functional local setup:
 - `DATABASE_URL`, `DIRECT_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-- `ADMIN_SESSION_SECRET`
-- `RESEND_API_KEY`, `EMAIL_FROM` (and optional `SUPPORT_EMAIL`)
+- `ADMIN_SESSION_SECRET`, `MANAGE_LINK_SECRET`
+- `RESEND_API_KEY`, `EMAIL_FROM`, `SUPPORT_EMAIL`
+
+Operational tuning values that already have safe defaults:
+- `CONFIRMATION_RECONCILE_DEBOUNCE_MS`
+- `CONFIRMATION_RECONCILE_MAP_MAX_SIZE`
 
 Optional local-only convenience values:
 - `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED`
@@ -118,10 +123,11 @@ Optional local-only convenience values:
 
 ## 8) Local developer quickstart
 1. Install deps: `npm install`
-2. Apply migrations: `npm run prisma:dev`
-3. Seed defaults (services, availability, admin): `npm run prisma:seed`
-4. Start app: `npm run dev`
-5. Optional containerized path: `docker compose up --build`
+2. Copy `.env.example` to `.env` and fill in real secrets.
+3. Apply migrations: `npm run prisma:dev`
+4. Seed defaults (services, availability, admin): `npm run prisma:seed`
+5. Start app: `npm run dev`
+6. Optional containerized path: `docker compose up --build`
 
 ### Optional dev booking prefill
 - Add `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true` in `.env.local` to show a `Use sample data` button on `/book`.

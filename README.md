@@ -1,6 +1,6 @@
 # Powerwash Booking
 
-Production-oriented mobile-first car wash booking application built with Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind CSS, Stripe, and Railway deployment conventions.
+Production-oriented mobile-first car wash booking application built with Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind CSS, Stripe, Resend, and Railway/Vercel deployment conventions.
 
 ## Stack
 
@@ -10,6 +10,7 @@ Production-oriented mobile-first car wash booking application built with Next.js
 - Prisma ORM
 - Tailwind CSS
 - Stripe Checkout + webhook
+- Resend transactional email API
 - Signed cookie admin auth with `jose`
 
 ## Project Structure
@@ -55,12 +56,11 @@ Production-oriented mobile-first car wash booking application built with Next.js
 Main models:
 
 - `Service`: fixed duration, base price, deposit, active flag
-- `Customer`: contact details
-- `Vehicle`: make, model, year, plate, color
-- `Booking`: appointment time range, payment status, Stripe references, balance due
+- `Booking`: appointment time range, customer and vehicle details, payment state, Stripe references, manage-link rotation metadata, balance due, archival fields
 - `AvailabilityRule`: recurring weekly hours
 - `BlackoutDate`: one-off blocked windows
 - `AdminUser`: dashboard login
+- `BookingEvent`: audit trail for payment, cancellation, admin, and manage-link actions
 
 The migration adds:
 
@@ -106,7 +106,7 @@ npm run dev
 
 ## Docker Compose Development
 
-This repo includes a local development compose setup in [docker-compose.yml](h:\GitHub\powerwash\docker-compose.yml).
+This repo includes a local development compose setup in [`docker-compose.yml`](./docker-compose.yml).
 
 What it does:
 
@@ -222,16 +222,22 @@ docker compose down -v
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Prisma pooled PostgreSQL connection string |
-| `DIRECT_URL` | Recommended | Direct PostgreSQL connection for Prisma migrations on Railway |
+| `DATABASE_URL` | Yes | Prisma PostgreSQL connection string |
+| `DIRECT_URL` | Yes | Direct PostgreSQL connection for Prisma migrations |
+| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe and emailed links |
 | `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key |
 | `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook` |
-| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe success and cancel URLs |
 | `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED` | Local only | Shows a dev-only `Use sample data` button on `/book` when set to `true` |
 | `NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON` | Local only | JSON payload used to fill booking form contact and vehicle fields during development |
 | `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies |
+| `MANAGE_LINK_SECRET` | Strongly recommended | Secret used to sign customer booking management links |
+| `RESEND_API_KEY` | Yes | API key for transactional emails |
+| `EMAIL_FROM` | Yes | Sender used for customer booking emails |
+| `SUPPORT_EMAIL` | Yes in current deploy scripts | Contact address included in booking emails |
 | `SEED_ADMIN_EMAIL` | Optional | Seed admin login email |
 | `SEED_ADMIN_PASSWORD` | Optional | Seed admin login password |
+| `CONFIRMATION_RECONCILE_DEBOUNCE_MS` | Optional | Debounce window for checkout confirmation reconciliation |
+| `CONFIRMATION_RECONCILE_MAP_MAX_SIZE` | Optional | Max in-memory reconciliation cache size |
 
 ## Stripe Setup
 
@@ -250,14 +256,14 @@ https://your-domain.com/api/stripe/webhook
 
 ## Railway Deployment
 
-Railway deployment is Dockerfile-based and should use the production [Dockerfile](h:\GitHub\powerwash\Dockerfile), not the local [docker-compose.yml](h:\GitHub\powerwash\docker-compose.yml).
+Railway deployment is Dockerfile-based and should use the production [`Dockerfile`](./Dockerfile), not the local [`docker-compose.yml`](./docker-compose.yml).
 
 ### Deployment files
 
-- [Dockerfile](h:\GitHub\powerwash\Dockerfile): production image build for Railway
-- [.dockerignore](h:\GitHub\powerwash\.dockerignore): excludes local-only files from the Docker build context
-- [scripts/start.sh](h:\GitHub\powerwash\scripts\start.sh): runtime orchestration for env validation, migrations, seed-once, and app startup
-- [scripts/check-bootstrap.mjs](h:\GitHub\powerwash\scripts\check-bootstrap.mjs): database sentinel check used to decide whether bootstrap seeding is needed
+- [`Dockerfile`](./Dockerfile): production image build for Railway
+- [`.dockerignore`](./.dockerignore): excludes local-only files from the Docker build context
+- [`scripts/start.sh`](./scripts/start.sh): runtime orchestration for env validation, migrations, seed-once, and app startup
+- [`scripts/check-bootstrap.mjs`](./scripts/check-bootstrap.mjs): database sentinel check used to decide whether bootstrap seeding is needed
 
 ### Runtime contract
 
@@ -296,8 +302,12 @@ These must be present for startup to succeed:
 - `DIRECT_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `ADMIN_SESSION_SECRET`
+- `MANAGE_LINK_SECRET`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `SUPPORT_EMAIL`
 
 Optional bootstrap env vars:
 
@@ -335,7 +345,7 @@ Because startup uses `AdminUser` existence as the seed sentinel, automatic seed 
 
 ## Vercel Deployment
 
-Vercel does not run the Railway startup script, so this repo includes a dedicated Vercel build command in [vercel.json](h:\GitHub\powerwash\vercel.json).
+Vercel does not run the Railway startup script, so this repo includes a dedicated Vercel build command in [`vercel.json`](./vercel.json).
 
 During Vercel builds it runs the equivalent bootstrap sequence:
 
@@ -354,6 +364,7 @@ Set the same core environment variables used in Railway, especially:
 - `DIRECT_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `ADMIN_SESSION_SECRET`
+- `MANAGE_LINK_SECRET`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `RESEND_API_KEY`
