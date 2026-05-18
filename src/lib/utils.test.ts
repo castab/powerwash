@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   formatInBusinessTimeZone,
+  normalizeMoneyInput,
   parseBusinessDateTimeLocalValue,
   toBusinessDateTimeLocalValue,
 } from "./utils.ts";
@@ -36,4 +37,13 @@ runTest("business timezone formatter uses Pacific wall-clock time", () => {
   });
 
   assert.equal(formatted, "Mar 12, 8:08 PM");
+});
+
+
+runTest("normalizeMoneyInput rejects blank string input", () => {
+  assert.throws(() => normalizeMoneyInput("   "), /Enter a valid dollar amount\./);
+});
+
+runTest("normalizeMoneyInput still supports formatted currency strings", () => {
+  assert.equal(normalizeMoneyInput(" $1,234.5 "), "1234.50");
 });

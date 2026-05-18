@@ -17,6 +17,11 @@ function asMoneyNumber(value: MoneyInput) {
 
   if (typeof value === "string") {
     const sanitized = value.replace(/[$,\s]/g, "");
+
+    if (sanitized.length === 0) {
+      return Number.NaN;
+    }
+
     return Number(sanitized);
   }
 
