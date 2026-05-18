@@ -1,26 +1,46 @@
 # Powerwash Booking
 
-Production-oriented mobile-first car wash booking application built with Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind CSS, Stripe, Resend, and Railway/Vercel deployment conventions.
+Production-oriented, mobile-first car wash booking application built with Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind CSS, Stripe, Resend, and Railway/Vercel deployment conventions.
+
+## Features
+
+- Customer-facing service browsing and booking flow.
+- Live availability lookup from recurring weekly rules, blackout windows, and existing bookings.
+- Stripe Checkout for booking deposits and admin-requested remaining balance collection.
+- Stripe webhook and confirmation-page reconciliation for payment state changes.
+- Secure customer booking management links sent by email.
+- Customer cancellation flow with automatic deposit refund when cancellation is at least 24 hours before the appointment.
+- Admin dashboard for services, weekly availability, blackout dates, bookings, balance requests, archival, and eligible manual refunds.
+- Database-level overlap protection using a PostgreSQL exclusion constraint.
+- Business-logic overlap validation using serializable transactions.
+- Booking event audit trail for payments, admin actions, cancellations, manage links, archival, and balance requests.
+- Seed data for services, weekly rules, and an admin account.
+- Minimal PWA manifest.
 
 ## Stack
 
-- Next.js App Router
-- TypeScript
-- PostgreSQL
-- Prisma ORM
-- Tailwind CSS
-- Stripe Checkout + webhook
-- Resend transactional email API
-- Signed cookie admin auth with `jose`
+- Next.js App Router, React 19, and TypeScript.
+- Tailwind CSS.
+- PostgreSQL with Prisma ORM.
+- Zod validation for form and action input.
+- Stripe Checkout and Stripe webhooks.
+- Resend transactional email API.
+- Signed JWT admin session cookie with `jose` and bcrypt password verification.
+- Docker Compose for local app/database development with an optional Stripe CLI helper.
+- Railway Dockerfile deployment and Vercel build-command deployment support.
 
 ## Project Structure
 
 ```text
 .
 |- prisma/
-|  |- migrations/0001_init/migration.sql
+|  |- migrations/
 |  |- schema.prisma
 |  `- seed.ts
+|- scripts/
+|  |- check-bootstrap.mjs
+|  |- start.sh
+|  `- vercel-build.mjs
 |- src/
 |  |- app/
 |  |  |- admin/
@@ -28,171 +48,200 @@ Production-oriented mobile-first car wash booking application built with Next.js
 |  |  |- book/
 |  |  `- booking/
 |  |- components/
-|  |  |- admin/
-|  |  |- booking/
-|  |  |- home/
-|  |  `- layout/
 |  |- lib/
 |  `- server/actions/
+|- AGENTS.md
+|- Dockerfile
+|- docker-compose.yml
 |- middleware.ts
 `- .env.example
 ```
 
-## Features
+## Key Files
 
-- Customer-facing booking flow
-- Service browsing and live slot lookup
-- Stripe Checkout for deposit and admin-requested balance collection
-- Stripe webhook confirmation
-- Remaining balance tracked until paid in full
-- Admin dashboard for services, weekly availability, blackout dates, and bookings
-- Database-level overlap protection using a PostgreSQL exclusion constraint
-- Business-logic overlap validation using serializable transactions
-- Seed data for services, weekly rules, and an admin account
-- PWA manifest
+- `src/app/page.tsx`: public home page and service listing.
+- `src/app/book/page.tsx`: customer booking page.
+- `src/components/booking/booking-form.tsx`: booking UI, slot fetch behavior, and dev prefill integration.
+- `src/app/api/availability/route.ts`: public slot lookup endpoint.
+- `src/server/actions/booking.ts`: booking checkout action, customer cancellation, manage-link resend, and confirmation reconciliation action.
+- `src/lib/booking.ts`: slot computation, held booking creation, and overlap checks.
+- `src/lib/booking-management.ts`: signed manage-link generation/rotation, customer booking lookup, cancellation messages, and customer email helpers.
+- `src/lib/stripe-reconciliation.ts`: Stripe Checkout session reconciliation for deposits and balance payments.
+- `src/lib/balance-payment.ts`: admin-requested remaining balance email delivery.
+- `src/server/actions/admin.ts`: admin login, service/availability/blackout CRUD, booking updates, balance requests, archive actions, and manual refund action.
+- `src/lib/auth.ts`: admin cookie creation and admin validation.
+- `src/lib/env.ts`: runtime environment variable reads and local dev booking prefill parsing.
+- `prisma/schema.prisma`: data model, enums, indexes, and relations.
+- `prisma/migrations/`: database migrations, including overlap constraints.
+- `prisma/seed.ts`: default services, availability, and admin user.
+- `scripts/start.sh`: Railway runtime startup sequence.
+- `scripts/vercel-build.mjs`: Vercel build-time migration/bootstrap sequence.
+
+## Architecture
+
+### Customer Booking Flow
+
+1. Customer opens `/` to browse active services.
+2. Customer opens `/book`, which renders active services and the booking form.
+3. The booking form calls `/api/availability?serviceId=...&date=...` to retrieve available slots.
+4. The customer submits the booking form to `createBookingCheckoutAction`.
+5. The server validates input with `bookingSchema`.
+6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 30 minutes in the future.
+7. The server creates a Stripe Checkout session for the deposit and redirects the customer to Stripe.
+8. Stripe sends a webhook for `checkout.session.completed` or `checkout.session.expired`.
+9. The customer returns to `/booking/confirmation?session_id=...`, which can retry reconciliation if the webhook has not completed yet.
+
+### Payment Semantics
+
+- New bookings start as `PENDING_PAYMENT` and `PENDING`.
+- Deposit, total price, and remaining balance are saved immediately on the booking.
+- Deposit checkout completion promotes the booking to `CONFIRMED` and `PARTIALLY_PAID`.
+- Expired deposit checkout marks the held booking `CANCELLED` and `FAILED` if it is still pending.
+- Remaining balance collection is initiated by an admin from the bookings dashboard.
+- Balance checkout completion marks `paymentStatus` as `PAID`, zeros `balanceDue`, and records the balance payment intent.
+- Balance payment does not automatically mark the service `COMPLETED`.
+- Stripe webhook reconciliation and confirmation-page reconciliation share `src/lib/stripe-reconciliation.ts`.
+
+### Scheduling Rules
+
+- `AvailabilityRule` stores recurring weekly windows by day of week and local start/end time.
+- `BlackoutDate` stores one-off blocked ranges.
+- `Booking` stores appointment `startAt` and `endAt` ranges.
+- Available slots are generated in 15-minute increments.
+- Slots starting less than 60 minutes from the current time are filtered out.
+- Active conflicts include `CONFIRMED`, `COMPLETED`, `NO_SHOW`, and unexpired `PENDING_PAYMENT` bookings.
+- Blackout windows block overlapping slots.
+- The current implementation assumes a single service bay.
+
+### Double-Booking Protection
+
+- `getAvailableSlots` filters visible slot choices.
+- `ensureBookableSlot` rechecks the selected slot before insertion.
+- `createHeldBooking` uses a serializable transaction and rechecks overlap before insert.
+- The database has a PostgreSQL exclusion constraint to block overlapping active booking ranges.
+- Prisma database errors during booking creation are normalized to a user-friendly “window was just taken” message.
+
+### Admin Flow
+
+- Admins log in at `/admin/login`.
+- Login verifies bcrypt password hashes and writes a signed HTTP-only cookie.
+- `middleware.ts` blocks `/admin/*` routes when the cookie is absent.
+- Server actions call `requireAdmin()` where authenticated admin identity is required.
+- Admins can manage services, weekly availability, blackout windows, booking status/reschedule notes, balance requests, archive state, and eligible late-cancellation refunds.
+
+### Manage Links
+
+- Customer management links point to `/booking/manage?token=...`.
+- Tokens are signed HMAC payloads, not database-stored raw tokens.
+- Token payload contains `bookingId`, `manageTokenVersion`, and `manageTokenRotatedAt`.
+- Signature uses `MANAGE_LINK_SECRET`.
+- Rotation is enforced by comparing token payload values to the current booking version and rotation timestamp.
+- Initial manage-link email is sent once after deposit confirmation.
+- Resending a manage link rotates the token and invalidates previous links.
+- Archived bookings remain customer-accessible until `customerAccessEndsAt`; current code sets this to 18 months after archival.
+
+### Cancellation And Refund Rules
+
+- Customers can cancel confirmed, partially paid bookings through a valid manage link.
+- Cancellations at least 24 hours before the appointment attempt an automatic Stripe deposit refund.
+- Cancellations inside 24 hours are allowed only after confirmation and do not automatically refund.
+- Admins can issue eligible late-cancellation deposit refunds from the dashboard.
+- Terminal bookings such as `COMPLETED` and `NO_SHOW` cannot be canceled online.
+- Fully paid bookings are treated as not cancellable through the customer manage flow.
 
 ## Database Schema
 
 Main models:
 
-- `Service`: fixed duration, base price, deposit, active flag
-- `Booking`: appointment time range, customer and vehicle details, payment state, Stripe references, manage-link rotation metadata, balance due, archival fields
-- `AvailabilityRule`: recurring weekly hours
-- `BlackoutDate`: one-off blocked windows
-- `AdminUser`: dashboard login
-- `BookingEvent`: audit trail for payment, cancellation, admin, and manage-link actions
+- `Service`: service name, slug, duration, base price, deposit, and active flag.
+- `Booking`: customer, vehicle, appointment range, payment state, Stripe references, manage-link metadata, balance request metadata, refund metadata, archival metadata, and audit events.
+- `AvailabilityRule`: recurring weekly hours.
+- `BlackoutDate`: one-off blocked windows.
+- `AdminUser`: dashboard login identity.
+- `BookingEvent`: audit trail for payment, cancellation, admin, manage-link, archive, and balance actions.
 
-The migration adds:
+Important database protections:
 
-- PostgreSQL enums for booking and payment status
-- indexes for schedule and admin queries
-- `booking_valid_range` check constraint
-- `booking_no_overlap` exclusion constraint using `tstzrange`
+- PostgreSQL enums for booking, payment, balance request delivery, and event status values.
+- Indexes for schedule, admin, archive, and event queries.
+- `booking_valid_range` check constraint.
+- `booking_no_overlap` exclusion constraint using `tstzrange`.
+
+When schema, migrations, seed data, or model semantics change, update this README, `.env.example` if relevant, and `AGENTS.md` if AI guidance changes.
 
 ## Local Setup
 
-1. Copy `.env.example` to `.env`.
-2. Create a PostgreSQL database.
-3. Fill in environment variables.
-4. Install dependencies:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-5. Apply migrations:
+2. Copy the environment template and fill in local values:
+
+```bash
+cp .env.example .env
+```
+
+3. Create or start a PostgreSQL database.
+
+4. Apply local development migrations:
 
 ```bash
 npm run prisma:dev
 ```
 
-For existing databases in production-like environments use:
-
-```bash
-npm run prisma:migrate
-```
-
-6. Seed data:
+5. Seed default services, availability, and admin user:
 
 ```bash
 npm run prisma:seed
 ```
 
-7. Start development:
+6. Start the development server:
 
 ```bash
 npm run dev
 ```
 
+The app runs at `http://localhost:3000` by default.
+
+Default seed admin credentials, unless overridden by environment variables:
+
+- Email: `admin@example.com`
+- Password: `ChangeMe123!`
+
+For production-like migration application, use:
+
+```bash
+npm run prisma:migrate
+```
+
 ## Docker Compose Development
 
-This repo includes a local development compose setup in [`docker-compose.yml`](./docker-compose.yml).
+This repo includes a local development Compose setup in `docker-compose.yml`.
 
 What it does:
 
-- Runs PostgreSQL 18 on `localhost:5432`
-- Runs the Next.js app on `http://localhost:3000`
-- Mounts the repo into the app container for live reload
-- Overrides `DATABASE_URL` and `DIRECT_URL` inside the app container to use the Compose service host `db`
-- Runs `prisma migrate deploy` automatically before starting the dev server
-- Runs the Prisma seed script automatically so the default admin account exists
-- Uses webpack dev mode in Docker because file watching is more reliable than Turbopack on Windows bind mounts
-- Includes an optional Stripe CLI helper service for local webhook forwarding
-- Is intended for local development only, not Railway production deployment
+- Runs PostgreSQL 18 on `localhost:5432`.
+- Runs the Next.js app on `http://localhost:3000`.
+- Mounts the repo into the app container for live reload.
+- Overrides `DATABASE_URL` and `DIRECT_URL` inside the app container to use the Compose service host `db`.
+- Runs `npm install`, Prisma client generation, migrations, seed, and `next dev --webpack` automatically.
+- Uses webpack dev mode in Docker because file watching is more reliable than Turbopack on Windows bind mounts.
+- Includes an optional Stripe CLI helper service for local webhook forwarding.
+- Is intended for local development only, not Railway production deployment.
 
 Before first run:
 
 1. Copy `.env.example` to `.env`.
-2. Set at least:
-   - `STRIPE_SECRET_KEY`
-   - `STRIPE_WEBHOOK_SECRET`
-   - `ADMIN_SESSION_SECRET`
-3. Leave the database URLs in `.env` as-is if you also want to run the app on the host. Compose overrides them automatically for the containerized app.
+2. Set at least `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_SESSION_SECRET`, `MANAGE_LINK_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, and `SUPPORT_EMAIL`.
+3. Leave database URLs in `.env` as-is if you also want to run the app on the host. Compose overrides them automatically for the containerized app.
 
 Start the stack:
 
 ```bash
 docker compose up --build
 ```
-
-### Stripe CLI helper for local webhooks
-
-The Compose stack includes an optional `stripe-cli` helper service for local Stripe webhook forwarding.
-
-First-time login:
-
-```bash
-docker compose run --rm stripe-cli login
-```
-
-What to expect:
-
-- Docker will print a Stripe login URL in the command output
-- Open that URL in your browser and complete the Stripe CLI authorization flow
-- The Stripe CLI config is stored in the `stripe_config` Docker volume, so you should not need to log in every time
-
-Start the listener after the app is already running:
-
-```bash
-docker compose --profile stripe up stripe-cli
-```
-
-What it does:
-
-- Runs `stripe listen --forward-to http://app:3000/api/stripe/webhook`
-- Forwards webhook events across the Compose network directly to the `app` service
-- Prints the current webhook signing secret (`whsec_...`) in the container logs
-
-Important manual step:
-
-1. Copy the `whsec_...` signing secret from the `stripe-cli` container logs.
-2. Add it to your local `.env` file as `STRIPE_WEBHOOK_SECRET=...`.
-3. Restart the app container so Next.js picks up the new env value.
-
-Example:
-
-```bash
-docker compose restart app
-```
-
-You will need to check the `stripe-cli` logs both:
-
-- to click the Stripe login link on first setup
-- to copy the webhook signing secret for the app container
-
-Useful commands:
-
-```bash
-docker compose logs -f stripe-cli
-docker compose run --rm stripe-cli login
-docker compose --profile stripe up stripe-cli
-```
-
-Troubleshooting:
-
-- Seeing `--> checkout.session.completed` in Stripe CLI is not enough by itself; also look for forwarded POST responses to `/api/stripe/webhook`
-- If webhook forwarding works but the app rejects the request, the most common cause is a missing or stale `STRIPE_WEBHOOK_SECRET`
-- The Stripe CLI helper is for local development only; production/staging environments should receive Stripe webhooks directly at the public `/api/stripe/webhook` URL
 
 Apply migrations from the running app container:
 
@@ -218,26 +267,121 @@ Remove containers and the Postgres data volume:
 docker compose down -v
 ```
 
+## Stripe Local Webhooks
+
+The app confirms payments through `POST /api/stripe/webhook`, so local development needs Stripe events forwarded to the local app.
+
+The Compose stack includes an optional `stripe-cli` helper service that runs:
+
+```bash
+stripe listen --forward-to http://app:3000/api/stripe/webhook
+```
+
+First-time login:
+
+```bash
+docker compose run --rm stripe-cli login
+```
+
+Start the listener after the app is already running:
+
+```bash
+docker compose --profile stripe up stripe-cli
+```
+
+Important manual step:
+
+1. Copy the `whsec_...` signing secret from the `stripe-cli` container logs.
+2. Add it to `.env` as `STRIPE_WEBHOOK_SECRET=...`.
+3. Restart the app container so Next.js picks up the new value.
+
+```bash
+docker compose restart app
+```
+
+Useful commands:
+
+```bash
+docker compose logs -f stripe-cli
+docker compose run --rm stripe-cli login
+docker compose --profile stripe up stripe-cli
+```
+
+Troubleshooting:
+
+- Seeing `--> checkout.session.completed` in Stripe CLI is not enough by itself; also look for forwarded POST responses to `/api/stripe/webhook`.
+- If webhook forwarding works but the app rejects the request, the most common cause is a missing or stale `STRIPE_WEBHOOK_SECRET`.
+- The Stripe CLI helper is for local development only. Production and staging environments should receive Stripe webhooks directly at the public `/api/stripe/webhook` URL.
+
 ## Environment Variables
+
+Copy `.env.example` to `.env` for local development. Update `.env.example` whenever a new environment variable is added, renamed, removed, or its expected format changes.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Prisma PostgreSQL connection string |
-| `DIRECT_URL` | Yes | Direct PostgreSQL connection for Prisma migrations |
-| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe and emailed links |
-| `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key |
-| `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook` |
-| `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED` | Local only | Shows a dev-only `Use sample data` button on `/book` when set to `true` |
-| `NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON` | Local only | JSON payload used to fill booking form contact and vehicle fields during development |
-| `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies |
-| `MANAGE_LINK_SECRET` | Strongly recommended | Secret used to sign customer booking management links |
-| `RESEND_API_KEY` | Yes | API key for transactional emails |
-| `EMAIL_FROM` | Yes | Sender used for customer booking emails |
-| `SUPPORT_EMAIL` | Yes in current deploy scripts | Contact address included in booking emails |
-| `SEED_ADMIN_EMAIL` | Optional | Seed admin login email |
-| `SEED_ADMIN_PASSWORD` | Optional | Seed admin login password |
-| `CONFIRMATION_RECONCILE_DEBOUNCE_MS` | Optional | Debounce window for checkout confirmation reconciliation |
-| `CONFIRMATION_RECONCILE_MAP_MAX_SIZE` | Optional | Max in-memory reconciliation cache size |
+| `DATABASE_URL` | Yes | Prisma PostgreSQL connection string. |
+| `DIRECT_URL` | Yes | Direct PostgreSQL connection for Prisma migrations. |
+| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe redirects and emailed links. |
+| `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key. |
+| `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook`. |
+| `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies. Use a strong value outside local development. |
+| `MANAGE_LINK_SECRET` | Yes | Secret used to sign customer booking management links. Use a strong value outside local development. |
+| `RESEND_API_KEY` | Yes for email | Resend API key for transactional emails. |
+| `EMAIL_FROM` | Yes for email | Sender used for customer booking emails. |
+| `SUPPORT_EMAIL` | Yes in deploy scripts | Contact address included in booking emails. |
+| `SEED_ADMIN_EMAIL` | Optional | Seed admin login email. Defaults to `admin@example.com`. |
+| `SEED_ADMIN_PASSWORD` | Optional | Seed admin login password. Defaults to `ChangeMe123!`. |
+| `CONFIRMATION_RECONCILE_DEBOUNCE_MS` | Optional | Debounce window for confirmation-page Stripe reconciliation. Defaults to `30000`. |
+| `CONFIRMATION_RECONCILE_MAP_MAX_SIZE` | Optional | Max in-memory confirmation reconciliation cache size. Defaults to `1000`. |
+| `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED` | Local only | Shows a dev-only `Use sample data` button on `/book` when set to `true`. |
+| `NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON` | Local only | JSON payload used to fill booking form contact and vehicle fields during development. |
+
+## Dev Booking Prefill
+
+For local development, you can expose a `Use sample data` button on `/book` to fill customer and vehicle fields with a reusable sample payload.
+
+Add these values in `.env.local` or `.env` only for local development:
+
+```env
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","make":"Toyota","model":"RAV4","year":"2022","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
+```
+
+Notes:
+
+- The helper only fills text fields.
+- It does not change service, date, or selected time slot.
+- Invalid or incomplete JSON disables the feature without crashing the page.
+- This is intended for local development only and should not be enabled in production.
+
+## Verification Commands
+
+Run the relevant checks before handing off changes:
+
+```bash
+npm run lint
+npm test
+npm run build
+```
+
+Notes:
+
+- `npm test` currently runs `src/lib/booking-prefill.test.ts`.
+- `src/lib/utils.test.ts` is present but is not currently included in the package `test` script.
+- Prisma client generation runs after install through `postinstall`, and can also be run manually with `npm run prisma:generate`.
+
+## Documentation Policy
+
+Documentation is part of every code change. Any change that affects behavior, setup, environment variables, commands, deployment, database schema, user flows, admin flows, payments, emails, auth, security assumptions, or operational behavior must include corresponding documentation updates.
+
+At minimum, consider whether to update:
+
+- `README.md` for developer-facing setup, architecture, workflow, deployment, or behavior changes.
+- `.env.example` for every environment variable addition, rename, removal, or format/default change.
+- `AGENTS.md` for AI-specific instructions, invariants, commands, or repo conventions.
+- Prisma migrations and schema notes when database behavior changes.
+
+If a change does not require documentation updates, call that out explicitly in the change summary or pull request notes.
 
 ## Stripe Setup
 
@@ -249,23 +393,23 @@ docker compose down -v
 https://your-domain.com/api/stripe/webhook
 ```
 
-4. Subscribe to:
-   - `checkout.session.completed`
-   - `checkout.session.expired`
-5. Set `STRIPE_WEBHOOK_SECRET`.
+4. Subscribe to these events:
+
+- `checkout.session.completed`
+- `checkout.session.expired`
+
+5. Set `STRIPE_WEBHOOK_SECRET` from the webhook endpoint signing secret.
 
 ## Railway Deployment
 
-Railway deployment is Dockerfile-based and should use the production [`Dockerfile`](./Dockerfile), not the local [`docker-compose.yml`](./docker-compose.yml).
+Railway deployment is Dockerfile-based and should use the production `Dockerfile`, not the local `docker-compose.yml`.
 
-### Deployment files
+Deployment files:
 
-- [`Dockerfile`](./Dockerfile): production image build for Railway
-- [`.dockerignore`](./.dockerignore): excludes local-only files from the Docker build context
-- [`scripts/start.sh`](./scripts/start.sh): runtime orchestration for env validation, migrations, seed-once, and app startup
-- [`scripts/check-bootstrap.mjs`](./scripts/check-bootstrap.mjs): database sentinel check used to decide whether bootstrap seeding is needed
-
-### Runtime contract
+- `Dockerfile`: production image build for Railway.
+- `.dockerignore`: excludes local-only files from the Docker build context.
+- `scripts/start.sh`: runtime orchestration for env validation, migrations, seed-once, and app startup.
+- `scripts/check-bootstrap.mjs`: database sentinel check used to decide whether bootstrap seeding is needed.
 
 Every Railway container start performs this sequence:
 
@@ -276,47 +420,20 @@ Every Railway container start performs this sequence:
 5. Run the seed script only if no admin users exist.
 6. Start the app with `next start`.
 
-This means:
+This means migrations run on every app start, bootstrap seed runs only once for an empty database, and later restarts skip seeding automatically.
 
-- migrations run on every app start
-- bootstrap seed runs only once for an empty database
-- later restarts skip seeding automatically
-
-### Railway setup
+Railway setup:
 
 1. Create a new Railway project.
 2. Add a PostgreSQL service.
 3. Create the app service from this repo.
 4. In the Railway service settings, deploy using the repo Dockerfile.
-5. Set the environment variables from the table above.
-6. Map:
-   - `DATABASE_URL` to Railway PostgreSQL `DATABASE_URL`
-   - `DIRECT_URL` to Railway PostgreSQL `DATABASE_PRIVATE_URL` if available, otherwise `DATABASE_URL`
-7. Trigger the first deploy.
+5. Set the required environment variables from the table above.
+6. Map `DATABASE_URL` to Railway PostgreSQL `DATABASE_URL`.
+7. Map `DIRECT_URL` to Railway PostgreSQL `DATABASE_PRIVATE_URL` if available, otherwise `DATABASE_URL`.
+8. Trigger the first deploy.
 
-### Required environment variables for Railway
-
-These must be present for startup to succeed:
-
-- `DATABASE_URL`
-- `DIRECT_URL`
-- `NEXT_PUBLIC_APP_URL`
-- `ADMIN_SESSION_SECRET`
-- `MANAGE_LINK_SECRET`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `RESEND_API_KEY`
-- `EMAIL_FROM`
-- `SUPPORT_EMAIL`
-
-Optional bootstrap env vars:
-
-- `SEED_ADMIN_EMAIL`
-- `SEED_ADMIN_PASSWORD`
-
-### Expected deploy logs
-
-On a first deploy against an empty database, Railway logs should show messages like:
+Expected first deploy logs include:
 
 ```text
 [railway-start] Validating environment
@@ -326,18 +443,16 @@ On a first deploy against an empty database, Railway logs should show messages l
 [railway-start] Starting Next.js
 ```
 
-On later restarts, logs should show:
+Expected later restart logs include:
 
 ```text
 [railway-start] Checking bootstrap data
 [railway-start] Bootstrap data already present, skipping seed
 ```
 
-### Manual reseed or recovery
+If you need to reseed intentionally, use a Railway shell or one-off command after clearing the relevant bootstrap data:
 
-If you ever need to reseed intentionally, use a Railway shell or one-off command after clearing the relevant bootstrap data:
-
-```text
+```bash
 npm run prisma:seed
 ```
 
@@ -345,9 +460,9 @@ Because startup uses `AdminUser` existence as the seed sentinel, automatic seed 
 
 ## Vercel Deployment
 
-Vercel does not run the Railway startup script, so this repo includes a dedicated Vercel build command in [`vercel.json`](./vercel.json).
+Vercel does not run the Railway startup script, so this repo includes a dedicated build command in `vercel.json`.
 
-During Vercel builds it runs the equivalent bootstrap sequence:
+During Vercel builds, `npm run build:vercel` performs this sequence:
 
 1. Validate required environment variables.
 2. Generate the Prisma client.
@@ -356,62 +471,17 @@ During Vercel builds it runs the equivalent bootstrap sequence:
 5. Run the seed script only when no admin users exist.
 6. Run `next build`.
 
-### Required Vercel configuration
+Set the same required environment variables used in Railway.
 
-Set the same core environment variables used in Railway, especially:
-
-- `DATABASE_URL`
-- `DIRECT_URL`
-- `NEXT_PUBLIC_APP_URL`
-- `ADMIN_SESSION_SECRET`
-- `MANAGE_LINK_SECRET`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `RESEND_API_KEY`
-- `EMAIL_FROM`
-- `SUPPORT_EMAIL`
-
-### Notes
+Notes:
 
 - Vercel applies migrations at build time, not on runtime startup.
 - Seed execution is idempotent because it is gated by the existing `seed:check` script.
 
-## Admin Auth
-
-- Admin users are stored in PostgreSQL with bcrypt password hashes.
-- Login issues a signed HTTP-only cookie.
-- `middleware.ts` protects `/admin/*`.
-- Seeded credentials come from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`.
-
-## Booking Flow
-
-1. Customer browses active services on `/`.
-2. Customer books on `/book`.
-3. Available slots are generated from active weekly availability, blackout dates, and future bookings.
-4. Booking is created in `PENDING_PAYMENT` state with a short payment hold.
-5. Stripe Checkout collects only the deposit.
-6. Stripe webhook marks the booking `CONFIRMED` and payment `PARTIALLY_PAID`.
-7. Remaining balance stays recorded on the booking as `balanceDue` until an admin requests and the customer completes a second Checkout session.
-
-## Dev Booking Prefill
-
-For local development, you can expose a `Use sample data` button on `/book` to fill the customer and vehicle fields with a reusable sample payload.
-
-Add these values in `.env.local` only:
-
-```env
-NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true
-NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","make":"Toyota","model":"RAV4","year":"2022","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
-```
-
-Notes:
-
-- This does not change service, date, or slot selection.
-- If the JSON is malformed or invalid, the button stays hidden.
-- This is intended for local development only and should not be enabled in production.
-
-## Notes
+## Operational Notes
 
 - Currency values are stored as dollar decimals with cent precision.
 - The current implementation assumes a single service bay. If the business later needs multiple simultaneous bays, add a resource dimension to `Booking` and the exclusion constraint.
 - PWA support is intentionally minimal to keep the core booking flow prioritized.
+- Treat Stripe webhooks as the source of truth for payment completion, with confirmation-page reconciliation as a fallback for delayed webhooks.
+- Treat management links as security-sensitive signed tokens. Do not log raw tokens or weaken signature/rotation behavior.
