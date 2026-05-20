@@ -143,7 +143,7 @@ export function BookingForm({
         </label>
       </div>
 
-      <div className="rounded-[24px] border border-line bg-surface p-4">
+      <div className="rounded-xl border border-line bg-surface p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Available start times</p>
@@ -162,14 +162,14 @@ export function BookingForm({
         {isLoadingSlots ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div className="h-11 animate-pulse rounded-2xl bg-white" key={index} />
+              <div className="h-10 animate-pulse rounded-lg bg-white" key={index} />
             ))}
           </div>
         ) : slots.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {slots.map((slot) => (
               <label
-                className="flex cursor-pointer items-center justify-center rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium has-[:checked]:border-brand has-[:checked]:bg-brand has-[:checked]:text-white"
+                className="flex cursor-pointer items-center justify-center rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-medium text-gray-700 has-[:checked]:border-brand has-[:checked]:bg-blue-50 has-[:checked]:text-brand"
                 key={slot.startAt}
               >
                 <input
@@ -320,7 +320,7 @@ export function BookingForm({
       </label>
 
       {state.status === "error" ? (
-        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {state.message}
         </p>
       ) : null}

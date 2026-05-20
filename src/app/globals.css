@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4f1e8;
-  --foreground: #152129;
-  --surface: #fffdf9;
-  --surface-strong: #f7f0e0;
+  --background: #f8fafc;
+  --foreground: #111827;
+  --surface: #f1f5f9;
+  --surface-strong: #e2e8f0;
   --card: #ffffff;
-  --line: rgba(21, 33, 41, 0.12);
-  --muted: #66757f;
-  --brand: #0e7490;
-  --brand-strong: #155e75;
-  --accent: #f59e0b;
-  --danger: #b91c1c;
-  --success: #166534;
+  --line: #e5e7eb;
+  --muted: #64748b;
+  --brand: #2563eb;
+  --brand-strong: #1d4ed8;
+  --accent: #0ea5e9;
+  --danger: #dc2626;
+  --success: #16a34a;
 }
 
 @theme inline {
@@ -43,14 +43,12 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: Inter, "Segoe UI", "Helvetica Neue", sans-serif;
   min-height: 100vh;
 }
 
 body::before {
-  background:
-    radial-gradient(circle at top left, rgba(14, 116, 144, 0.16), transparent 32%),
-    radial-gradient(circle at right 20%, rgba(245, 158, 11, 0.12), transparent 28%);
+  background: radial-gradient(circle at 15% 15%, rgba(37, 99, 235, 0.08), transparent 30%);
   content: "";
   inset: 0;
   pointer-events: none;
@@ -80,19 +78,19 @@ textarea {
 }
 
 .panel {
-  @apply rounded-[28px] border border-line bg-card shadow-[0_18px_50px_rgba(21,33,41,0.08)];
+  @apply rounded-xl border border-line bg-card shadow-sm;
 }
 
 .field {
-  @apply w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-foreground outline-none ring-0 placeholder:text-muted focus:border-brand focus:shadow-[0_0_0_4px_rgba(14,116,144,0.12)];
+  @apply w-full rounded-lg border border-line bg-white px-4 py-2.5 text-sm text-foreground outline-none ring-0 placeholder:text-muted focus:border-brand focus:ring-4 focus:ring-blue-100;
 }
 
 .button-primary {
-  @apply inline-flex items-center justify-center rounded-full bg-brand px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(14,116,144,0.18)] hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0;
+  @apply inline-flex items-center justify-center gap-x-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60;
 }
 
 .button-secondary {
-  @apply inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-semibold text-foreground hover:-translate-y-0.5 hover:bg-surface;
+  @apply inline-flex items-center justify-center rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-surface;
 }
 
 .button-dev {
@@ -100,7 +98,7 @@ textarea {
 }
 
 .badge {
-  @apply inline-flex items-center rounded-full border border-line bg-surface px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted;
+  @apply inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-blue-700;
 }
 
 .section-title {

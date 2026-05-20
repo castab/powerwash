@@ -10,7 +10,7 @@ export function ServiceCard({ service }: { service: Service }) {
           <p className="badge mb-3">Duration {service.durationMinutes} min</p>
           <h3 className="text-xl font-semibold">{service.name}</h3>
         </div>
-        <div className="rounded-2xl bg-surface px-3 py-2 text-right">
+        <div className="rounded-lg bg-surface px-3 py-2 text-right">
           <p className="text-xs uppercase tracking-[0.18em] text-muted">Deposit</p>
           <p className="text-base font-semibold">{formatCurrency(service.depositAmount)}</p>
         </div>

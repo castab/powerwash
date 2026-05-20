@@ -20,7 +20,7 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 ## Stack
 
 - Next.js App Router, React 19, and TypeScript.
-- Tailwind CSS.
+- Tailwind CSS with a Preline UI-inspired component system for customer/admin surfaces.
 - PostgreSQL with Prisma ORM.
 - Zod validation for form and action input.
 - Stripe Checkout and Stripe webhooks.

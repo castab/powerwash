@@ -35,7 +35,7 @@ export async function AdminShell({
           <nav className="mt-5 flex flex-col gap-2">
             {links.map((link) => (
               <Link
-                className="rounded-2xl px-4 py-3 text-sm font-medium text-muted hover:bg-surface hover:text-foreground"
+                className="rounded-lg px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface hover:text-foreground"
                 href={link.href}
                 key={link.href}
               >

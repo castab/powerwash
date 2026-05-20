@@ -43,15 +43,15 @@ export default async function HomePage() {
             </p>
 
             <div className="mt-6 space-y-3 text-sm">
-              <div className="rounded-[24px] bg-surface px-4 py-3">
+              <div className="rounded-lg border border-line bg-surface px-4 py-3">
                 <p className="font-semibold">Live scheduling</p>
                 <p className="mt-1 text-muted">Choose an open time that fits your day.</p>
               </div>
-              <div className="rounded-[24px] bg-surface px-4 py-3">
+              <div className="rounded-lg border border-line bg-surface px-4 py-3">
                 <p className="font-semibold">Deposit only online</p>
                 <p className="mt-1 text-muted">Pay the remaining balance in person at the appointment.</p>
               </div>
-              <div className="rounded-[24px] bg-surface px-4 py-3">
+              <div className="rounded-lg border border-line bg-surface px-4 py-3">
                 <p className="font-semibold">Mobile arrival</p>
                 <p className="mt-1 text-muted">Your wash is performed at your location.</p>
               </div>
