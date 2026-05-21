@@ -101,7 +101,6 @@ export function BookingForm({
       <input name="startAt" type="hidden" value={selectedStartAt} />
       <section className="panel p-5 sm:p-7">
         <div className="flex flex-col gap-2">
-          <p className="badge w-fit">Preline form + selectable cards</p>
           <h2 className="section-title">Book your wash</h2>
           <p className="text-sm leading-6 text-muted">
             Choose a service, reserve an open time slot, and pay only the deposit online. The
@@ -199,8 +198,7 @@ export function BookingForm({
 
       <section className="panel p-5 sm:p-7">
         <div className="mb-5">
-          <p className="badge">Preline contact form</p>
-          <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+          <h3 className="text-2xl font-semibold tracking-tight text-slate-950">
             Customer and vehicle details
           </h3>
         </div>

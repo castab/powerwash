@@ -15,12 +15,10 @@ export default async function HomePage() {
       <SiteHeader />
       <main className="shell stack py-4 sm:py-8">
         <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="panel relative overflow-hidden p-6 sm:p-8">
-            <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-r from-brand/10 via-cyan-400/10 to-orange-300/10" />
+          <div className="panel hero-panel relative overflow-hidden p-6 sm:p-8">
             <div className="relative flex h-full flex-col">
               <div>
-                <p className="badge">Preline hero + CTA</p>
-                <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
                   Premium mobile detailing with a calmer booking flow.
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-7 text-muted sm:text-base">
@@ -61,8 +59,7 @@ export default async function HomePage() {
           </div>
 
           <div className="panel p-6 sm:p-7">
-            <p className="badge">Preline feature cards</p>
-            <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
               Everything upfront.
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted">
@@ -96,8 +93,7 @@ export default async function HomePage() {
         <section className="stack" id="services">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="badge">Preline card grid</p>
-              <h2 className="section-title mt-3">Browse active services</h2>
+              <h2 className="section-title">Browse active services</h2>
             </div>
             <Link className="button-secondary" href="/book">
               Book from schedule

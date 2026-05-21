@@ -350,8 +350,7 @@ export default async function AdminBookingsPage() {
           <div className="panel min-w-0 p-5" key={day}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="badge">Preline accordion list</p>
-                <h2 className="mt-2 text-xl font-semibold">
+                <h2 className="text-xl font-semibold">
                   {formatBusinessDate(parseBusinessDateTimeLocalValue(`${day}T12:00`))}
                 </h2>
               </div>

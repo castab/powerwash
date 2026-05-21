@@ -35,8 +35,7 @@ export default async function BookPage() {
             services={serializedServices}
           />
           <aside className="panel hidden h-fit p-6 xl:block">
-            <p className="badge">Preline info panel</p>
-            <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">
+            <h2 className="text-xl font-semibold tracking-tight text-slate-950">
               Before you reserve
             </h2>
             <div className="mt-5 space-y-4 text-sm text-muted">

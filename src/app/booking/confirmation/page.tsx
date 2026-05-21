@@ -82,8 +82,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
   return (
     <main className="shell py-8">
       <div className="panel mx-auto max-w-3xl p-6 sm:p-8">
-        <p className="badge">Preline confirmation layout</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-muted">{description}</p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">

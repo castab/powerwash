@@ -141,6 +141,14 @@ textarea {
   @apply rounded-2xl border border-slate-200/70 bg-slate-50/80;
 }
 
+.hero-panel {
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 36%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.10), transparent 28%),
+    linear-gradient(180deg, rgba(15, 118, 110, 0.05), rgba(255, 255, 255, 0) 42%),
+    rgba(255, 255, 255, 0.88);
+}
+
 .eyebrow-link {
   @apply text-sm font-medium text-slate-500 transition hover:text-brand focus:outline-hidden focus:text-brand;
 }

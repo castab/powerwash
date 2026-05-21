@@ -130,8 +130,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
   return (
     <main className="shell py-8">
       <div className="panel mx-auto max-w-4xl p-6 sm:p-8">
-        <p className="badge">Preline detail cards</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight">
+        <h1 className="text-3xl font-semibold tracking-tight">
           {booking.service.name} booking
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted">

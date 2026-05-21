@@ -13,8 +13,7 @@ export default function AdminLoginPage() {
     <main className="shell flex min-h-screen items-center justify-center py-8">
       <form action={formAction} className="panel stack w-full max-w-md p-6 sm:p-8">
         <div>
-          <p className="badge">Preline auth card</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
             Secure dashboard access
           </h1>
           <p className="mt-3 text-sm leading-6 text-muted">
