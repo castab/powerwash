@@ -92,69 +92,6 @@ export function SiteHeader() {
                   Book
                 </Link>
 
-                <div className="hs-dropdown [--adaptive:none] [--is-collapse:true] sm:[--is-collapse:false] sm:[--strategy:absolute]">
-                  <button
-                    aria-expanded="false"
-                    aria-haspopup="menu"
-                    aria-label="Explore navigation"
-                    className="hs-dropdown-toggle inline-flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-950 focus:outline-hidden focus:bg-slate-50 sm:w-auto"
-                    id="site-header-explore-dropdown"
-                    type="button"
-                  >
-                    Explore
-                    <svg
-                      className="ms-2 size-4 shrink-0 transition-transform duration-200 hs-dropdown-open:rotate-180"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-
-                  <div
-                    aria-labelledby="site-header-explore-dropdown"
-                    className="hs-dropdown-menu hidden w-full opacity-0 transition-[opacity,margin] duration-150 sm:mt-2 sm:w-80 sm:min-w-80 sm:rounded-2xl sm:border sm:border-white/70 sm:bg-white/95 sm:p-2 sm:shadow-[0_24px_80px_rgba(15,23,42,0.12)] sm:backdrop-blur-xl"
-                    role="menu"
-                  >
-                    <div className="flex flex-col gap-1 py-2 sm:py-0">
-                      <Link
-                        className="rounded-2xl px-3 py-3 text-sm hover:bg-slate-50 focus:outline-hidden focus:bg-slate-50"
-                        href="/#services"
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        <span className="block font-medium text-slate-950">Browse services</span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-500">
-                          Jump to the active service menu on the home page.
-                        </span>
-                      </Link>
-                      <Link
-                        className="rounded-2xl px-3 py-3 text-sm hover:bg-slate-50 focus:outline-hidden focus:bg-slate-50"
-                        href="/book"
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        <span className="block font-medium text-slate-950">Book appointment</span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-500">
-                          Pick a slot and reserve an appointment with the online deposit flow.
-                        </span>
-                      </Link>
-                      <Link
-                        className="rounded-2xl px-3 py-3 text-sm hover:bg-slate-50 focus:outline-hidden focus:bg-slate-50"
-                        href="/admin"
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        <span className="block font-medium text-slate-950">Admin console</span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-500">
-                          Open the staff dashboard for services, bookings, and scheduling.
-                        </span>
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-
                 <Link
                   className="button-primary mt-3 px-4 py-2.5 sm:mt-0 sm:ms-4"
                   href="/book"

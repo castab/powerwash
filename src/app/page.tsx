@@ -22,10 +22,10 @@ export default async function HomePage() {
                   Premium mobile detailing with a calmer booking flow.
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-7 text-muted sm:text-base">
-                Skip the drive and let the clean come to your driveway, office, or parking spot.
-                Choose a time, book in minutes, and get that fresh-off-the-lot shine without
-                changing your day.
-              </p>
+                  Skip the drive and let the clean come to your driveway, office, or parking spot.
+                  Choose a time, book in minutes, and get that fresh-off-the-lot shine without
+                  changing your day.
+                </p>
               </div>
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <div className="panel-muted px-4 py-3">
@@ -91,13 +91,8 @@ export default async function HomePage() {
         </section>
 
         <section className="stack" id="services">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="section-title">Browse active services</h2>
-            </div>
-            <Link className="button-secondary" href="/book">
-              Book from schedule
-            </Link>
+          <div>
+            <h2 className="section-title">Browse active services</h2>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
