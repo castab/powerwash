@@ -1,6 +1,6 @@
 # Powerwash Booking
 
-Production-oriented, mobile-first car wash booking application built with Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind CSS, Stripe, Resend, and Railway/Vercel deployment conventions.
+Production-oriented, mobile-first car wash booking application built with Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind CSS, Preline UI, Stripe, Resend, and Railway/Vercel deployment conventions.
 
 ## Features
 
@@ -20,7 +20,7 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 ## Stack
 
 - Next.js App Router, React 19, and TypeScript.
-- Tailwind CSS.
+- Tailwind CSS with Preline UI free components.
 - PostgreSQL with Prisma ORM.
 - Zod validation for form and action input.
 - Stripe Checkout and Stripe webhooks.
@@ -62,6 +62,7 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 - `src/app/page.tsx`: public home page and service listing.
 - `src/app/book/page.tsx`: customer booking page.
 - `src/components/booking/booking-form.tsx`: booking UI, slot fetch behavior, and dev prefill integration.
+- `src/components/preline/preline-client.tsx`: client-side Preline `autoInit()` bridge for App Router navigation.
 - `src/app/api/availability/route.ts`: public slot lookup endpoint.
 - `src/server/actions/booking.ts`: booking checkout action, customer cancellation, manage-link resend, and confirmation reconciliation action.
 - `src/lib/booking.ts`: slot computation, held booking creation, and overlap checks.
@@ -78,6 +79,14 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 - `scripts/vercel-build.mjs`: Vercel build-time migration/bootstrap sequence.
 
 ## Architecture
+
+### UI System
+
+- Shared UI primitives now use Tailwind CSS plus the Preline UI free component library.
+- `src/app/globals.css` imports `preline/variants.css`, registers the Preline source files for Tailwind, and enables `@tailwindcss/forms`.
+- `src/components/preline/preline-client.tsx` runs Preline `autoInit()` after route changes so collapses and accordions keep working in the App Router.
+- Public pages use Preline-inspired navbar, card, form, and alert patterns.
+- Admin pages use a Preline-style dashboard shell, accordion booking cards, and timeline-style booking history blocks.
 
 ### Customer Booking Flow
 

@@ -130,7 +130,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
   return (
     <main className="shell py-8">
       <div className="panel mx-auto max-w-4xl p-6 sm:p-8">
-        <p className="badge">Manage booking</p>
+        <p className="badge">Preline detail cards</p>
         <h1 className="mt-4 text-3xl font-semibold tracking-tight">
           {booking.service.name} booking
         </h1>
@@ -139,7 +139,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
         </p>
 
         {isArchived ? (
-          <p className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="alert-warning mt-6">
             This booking has been archived. You can still view the details, but management actions
             are disabled. Customer access remains available until{" "}
             {booking.customerAccessEndsAt
@@ -149,20 +149,12 @@ export default async function BookingManagePage({ searchParams }: Props) {
           </p>
         ) : null}
 
-        {resultMessage ? (
-          <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {resultMessage}
-          </p>
-        ) : null}
+        {resultMessage ? <p className="alert-success mt-6">{resultMessage}</p> : null}
 
-        {errorMessage ? (
-          <p className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {errorMessage}
-          </p>
-        ) : null}
+        {errorMessage ? <p className="alert-error mt-6">{errorMessage}</p> : null}
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="panel-muted p-5">
             <p className="text-sm text-muted">Appointment</p>
             <p className="mt-2 text-lg font-semibold">
               {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
@@ -179,7 +171,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             </p>
           </div>
 
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="panel-muted p-5">
             <p className="text-sm text-muted">Payment and status</p>
             <p className="mt-2 text-sm">Status: {booking.status.replaceAll("_", " ")}</p>
             <p className="mt-1 text-sm">Payment: {booking.paymentStatus.replaceAll("_", " ")}</p>
@@ -205,7 +197,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
                 {formatBusinessDateTimeLong(booking.refundedAt)}
               </p>
             ) : null}
-            <div className="mt-4 rounded-2xl border border-line bg-white px-4 py-3 text-sm text-muted">
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-muted">
               {autoRefundEligible
                 ? "Canceling now will automatically refund the deposit."
                 : supportEmail
@@ -216,7 +208,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <form action={resendAction} className="rounded-[24px] border border-line p-5">
+          <form action={resendAction} className="panel-muted p-5">
             <h2 className="text-lg font-semibold">Resend secure link</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Email a fresh management link and invalidate older links.
@@ -231,7 +223,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             ) : null}
           </form>
 
-          <form action={cancelAction} className="rounded-[24px] border border-line p-5">
+          <form action={cancelAction} className="panel-muted p-5">
             <h2 className="text-lg font-semibold">Cancel booking</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Confirmed bookings canceled at least 24 hours before the appointment receive an
@@ -262,7 +254,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
                 {showCancellationWarning ? (
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <input name="confirmInsideWindow" type="hidden" value="true" />
-                    <SubmitButton className="bg-red-600 hover:bg-red-700">
+                    <SubmitButton className="button-danger">
                       Confirm cancellation
                     </SubmitButton>
                     <Link
@@ -284,7 +276,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             ) : (
               <div className="mt-4">
                 <SubmitButton
-                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-300"
+                  className="button-danger"
                   disabled={!canCancel}
                 >
                   {canCancel ? "Cancel booking" : "Cancellation unavailable"}

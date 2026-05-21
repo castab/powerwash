@@ -17,7 +17,7 @@ export default async function AdminServicesPage() {
       description="Create, edit, and deactivate service definitions. Each service keeps a fixed duration, base price, and required booking deposit."
     >
       <section className="panel p-5">
-        <h2 className="text-lg font-semibold">Create service</h2>
+        <h2 className="text-lg font-semibold text-slate-950">Create service</h2>
         <form action={saveServiceAction} className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="stack md:col-span-2">
             <span className="text-sm font-medium">Service name</span>

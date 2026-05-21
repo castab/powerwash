@@ -18,7 +18,7 @@ export default async function AdminBlackoutsPage() {
       description="Block one-off closures, events, or maintenance windows. Slot generation excludes any interval that overlaps an active blackout."
     >
       <section className="panel p-5">
-        <h2 className="text-lg font-semibold">Add blackout</h2>
+        <h2 className="text-lg font-semibold text-slate-950">Add blackout</h2>
         <form action={saveBlackoutAction} className="mt-4 grid gap-4 md:grid-cols-2">
           <input className="field" name="startsAt" type="datetime-local" />
           <input className="field" name="endsAt" type="datetime-local" />

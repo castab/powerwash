@@ -13,8 +13,10 @@ export default function AdminLoginPage() {
     <main className="shell flex min-h-screen items-center justify-center py-8">
       <form action={formAction} className="panel stack w-full max-w-md p-6 sm:p-8">
         <div>
-          <p className="badge">Admin login</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight">Secure dashboard access</h1>
+          <p className="badge">Preline auth card</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+            Secure dashboard access
+          </h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             Sign in with an admin user seeded in PostgreSQL. Sessions are stored in a signed
             HTTP-only cookie.
@@ -22,19 +24,15 @@ export default function AdminLoginPage() {
         </div>
 
         <label className="stack">
-          <span className="text-sm font-medium">Email</span>
+          <span className="text-sm font-medium text-slate-800">Email</span>
           <input className="field" name="email" required type="email" />
         </label>
         <label className="stack">
-          <span className="text-sm font-medium">Password</span>
+          <span className="text-sm font-medium text-slate-800">Password</span>
           <input className="field" name="password" required type="password" />
         </label>
 
-        {state.error ? (
-          <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {state.error}
-          </p>
-        ) : null}
+        {state.error ? <p className="alert-error">{state.error}</p> : null}
 
         <SubmitButton className="w-full justify-center">Sign in</SubmitButton>
       </form>

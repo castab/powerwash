@@ -18,7 +18,7 @@ export default async function AdminAvailabilityPage() {
       description="Define recurring appointment windows. Public booking only exposes slots that fit inside active availability rules."
     >
       <section className="panel p-5">
-        <h2 className="text-lg font-semibold">Add rule</h2>
+        <h2 className="text-lg font-semibold text-slate-950">Add rule</h2>
         <form action={saveAvailabilityRuleAction} className="mt-4 grid gap-4 md:grid-cols-4">
           <select className="field" name="dayOfWeek">
             {days.map((day, index) => (

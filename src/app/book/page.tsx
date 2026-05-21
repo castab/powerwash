@@ -28,7 +28,30 @@ export default async function BookPage() {
     <div className="pb-10">
       <SiteHeader />
       <main className="shell py-4 sm:py-8">
-        <BookingForm dateOptions={dateOptions} devPrefill={devPrefill} services={serializedServices} />
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_320px]">
+          <BookingForm
+            dateOptions={dateOptions}
+            devPrefill={devPrefill}
+            services={serializedServices}
+          />
+          <aside className="panel hidden h-fit p-6 xl:block">
+            <p className="badge">Preline info panel</p>
+            <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">
+              Before you reserve
+            </h2>
+            <div className="mt-5 space-y-4 text-sm text-muted">
+              <div className="panel-muted px-4 py-4">
+                Open slots are rechecked server-side before a booking hold is created.
+              </div>
+              <div className="panel-muted px-4 py-4">
+                Deposit checkout reserves the appointment while the remaining balance stays due until service day.
+              </div>
+              <div className="panel-muted px-4 py-4">
+                After payment, a secure manage link is emailed so customers can review or cancel their reservation.
+              </div>
+            </div>
+          </aside>
+        </div>
       </main>
     </div>
   );

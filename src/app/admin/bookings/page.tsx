@@ -68,18 +68,24 @@ function BookingEvents({ booking }: { booking: AdminBooking }) {
   }
 
   return (
-    <div className="mt-4 rounded-[20px] border border-line bg-white p-4">
-      <p className="text-sm font-semibold">History</p>
-      <div className="mt-3 grid gap-3 text-sm">
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+      <p className="text-sm font-semibold text-slate-950">History</p>
+      <div className="mt-4">
         {booking.events.map((event) => (
-          <div className="border-t border-line pt-3 first:border-t-0 first:pt-0" key={event.id}>
-            <p className="font-medium">
-              {formatEventType(event.type)}{" "}
-              <span className="text-muted">on {formatBusinessDateTime(event.createdAt)}</span>
-            </p>
-            <p className="text-muted">
-              {event.actorAdminUser?.email ?? event.actorLabel ?? "system"}
-            </p>
+          <div className="flex gap-x-3" key={event.id}>
+            <div className="relative">
+              <div className="relative z-10 mt-1 size-3 rounded-full bg-brand" />
+              <div className="absolute left-1.5 top-4 h-[calc(100%-0.25rem)] border-l border-slate-200 last:hidden" />
+            </div>
+            <div className="grow pb-4">
+              <p className="font-medium text-slate-900">
+                {formatEventType(event.type)}{" "}
+                <span className="text-muted">on {formatBusinessDateTime(event.createdAt)}</span>
+              </p>
+              <p className="text-sm text-muted">
+                {event.actorAdminUser?.email ?? event.actorLabel ?? "system"}
+              </p>
+            </div>
           </div>
         ))}
       </div>
@@ -94,10 +100,12 @@ function BookingCard({
   booking: AdminBooking;
   archived?: boolean;
 }) {
+  const accordionId = `booking-${booking.id}`;
+  const collapseId = `${accordionId}-details`;
   const summary = (
     <>
       <div className="min-w-0 space-y-1 text-sm">
-        <p className="font-semibold">
+        <p className="font-semibold text-slate-950">
           {formatBusinessTime(booking.startAt)} - {booking.service.name}
         </p>
         <p className="text-muted">
@@ -119,8 +127,9 @@ function BookingCard({
         ) : null}
       </div>
       <div className="shrink-0 text-right text-sm text-muted">
-        <span className="group-open:hidden">View details</span>
-        <span className="hidden group-open:inline">Hide details</span>
+        <span className="inline-flex items-center gap-x-2 rounded-full border border-slate-200 bg-white px-3 py-1 font-medium">
+          Details
+        </span>
       </div>
     </>
   );
@@ -294,11 +303,11 @@ function BookingCard({
   );
 
   return (
-    <div className="rounded-[24px] border border-line bg-surface p-4" key={booking.id}>
+    <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4" key={booking.id}>
       {booking.status === "CANCELLED" &&
       booking.paymentStatus === "PARTIALLY_PAID" &&
       booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" ? (
-        <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="alert-warning mb-4">
           <p className="font-semibold">Late cancellation awaiting refund decision</p>
           <p className="mt-1">
             This booking was canceled inside 24 hours. The deposit is still marked as paid until an
@@ -307,12 +316,22 @@ function BookingCard({
         </div>
       ) : null}
 
-      <details className="group">
-        <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-[20px] text-left marker:hidden">
+      <div className="hs-accordion" id={accordionId}>
+        <button
+          aria-controls={collapseId}
+          className="hs-accordion-toggle flex w-full items-start justify-between gap-3 rounded-[20px] text-left"
+          type="button"
+        >
           {summary}
-        </summary>
-        <div className="mt-4 border-t border-line pt-4">{details}</div>
-      </details>
+        </button>
+        <div
+          className="hs-accordion-content hidden w-full overflow-hidden transition-[height] duration-300"
+          id={collapseId}
+          role="region"
+        >
+          <div className="mt-4 border-t border-slate-200 pt-4">{details}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -331,7 +350,7 @@ export default async function AdminBookingsPage() {
           <div className="panel min-w-0 p-5" key={day}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="badge">Calendar view</p>
+                <p className="badge">Preline accordion list</p>
                 <h2 className="mt-2 text-xl font-semibold">
                   {formatBusinessDate(parseBusinessDateTimeLocalValue(`${day}T12:00`))}
                 </h2>

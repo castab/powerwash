@@ -82,12 +82,12 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
   return (
     <main className="shell py-8">
       <div className="panel mx-auto max-w-3xl p-6 sm:p-8">
-        <p className="badge">Booking confirmation</p>
+        <p className="badge">Preline confirmation layout</p>
         <h1 className="mt-4 text-3xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-muted">{description}</p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="panel-muted p-5">
             <p className="text-sm text-muted">Service</p>
             <p className="mt-2 text-lg font-semibold">{booking.service.name}</p>
             <p className="mt-1 text-sm text-muted">
@@ -98,7 +98,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
               {booking.vehicleMake} {booking.vehicleModel}
             </p>
           </div>
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="panel-muted p-5">
             <p className="text-sm text-muted">Payment summary</p>
             <p className="mt-2 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
             <p className="mt-1 text-sm">
@@ -111,14 +111,14 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
         </div>
 
         {isFinalizing ? (
-          <div className="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          <div className="alert-warning mt-6 p-5">
             <p className="font-semibold">Manage link still syncing</p>
             <p className="mt-2">
               Refresh this page in a few seconds to reveal the booking link, or use the email once it arrives.
             </p>
           </div>
         ) : manageUrl ? (
-          <div className="mt-6 rounded-[24px] border border-line bg-surface p-5">
+          <div className="panel-muted mt-6 p-5">
             <p className="text-sm font-semibold">Bookmark your management link</p>
             <p className="mt-2 text-sm text-muted">
               This is the same secure link sent by email. Save it if you want direct access to manage the booking later.
@@ -128,7 +128,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
                 Manage booking
               </Link>
             </div>
-            <p className="mt-4 break-all rounded-2xl border border-line bg-white px-4 py-3 text-sm">
+            <p className="mt-4 break-all rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
               {manageUrl}
             </p>
           </div>
