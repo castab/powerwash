@@ -102,6 +102,7 @@ function BookingCard({
 }) {
   const accordionId = `booking-${booking.id}`;
   const collapseId = `${accordionId}-details`;
+  const triggerId = `${accordionId}-trigger`;
   const summary = (
     <>
       <div className="min-w-0 space-y-1 text-sm">
@@ -319,6 +320,8 @@ function BookingCard({
       <div className="hs-accordion" id={accordionId}>
         <button
           aria-controls={collapseId}
+          aria-expanded="false"
+          id={triggerId}
           className="hs-accordion-toggle flex w-full items-start justify-between gap-3 rounded-[20px] text-left"
           type="button"
         >
@@ -327,6 +330,7 @@ function BookingCard({
         <div
           className="hs-accordion-content hidden w-full overflow-hidden transition-[height] duration-300"
           id={collapseId}
+          aria-labelledby={triggerId}
           role="region"
         >
           <div className="mt-4 border-t border-slate-200 pt-4">{details}</div>
