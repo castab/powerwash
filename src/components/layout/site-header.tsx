@@ -2,20 +2,20 @@ import Link from "next/link";
 
 export function SiteHeader() {
   return (
-    <header className="shell py-4">
-      <div className="panel flex items-center justify-between gap-4 px-5 py-4">
-        <Link className="text-lg font-semibold tracking-tight" href="/">
+    <header className="border-b border-gray-200 bg-white">
+      <nav className="mx-auto flex w-full max-w-screen-xl items-center justify-between p-4" aria-label="Main navigation">
+        <Link className="flex items-center text-xl font-semibold text-gray-900" href="/">
           Powerwash Booking
         </Link>
-        <nav className="flex items-center gap-3 text-sm font-medium">
-          <Link className="text-muted hover:text-foreground" href="/#services">
+        <div className="flex items-center gap-6 text-sm font-medium text-gray-700">
+          <Link className="hover:text-cyan-700" href="/#services">
             Services
           </Link>
-          <Link className="text-muted hover:text-foreground" href="/book">
+          <Link className="hover:text-cyan-700" href="/book">
             Book
           </Link>
-        </nav>
-      </div>
+        </div>
+      </nav>
     </header>
   );
 }

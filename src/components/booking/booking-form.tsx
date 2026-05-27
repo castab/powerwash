@@ -90,29 +90,29 @@ export function BookingForm({
 
   if (!services.length) {
     return (
-      <div className="panel p-6 text-sm text-muted">
+      <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-500">
         No active services are available right now. Please check back later.
       </div>
     );
   }
 
   return (
-    <form action={formAction} className="panel stack p-5 sm:p-7">
+    <form action={formAction} className="space-y-5 rounded-lg border border-gray-200 bg-white p-5 shadow-sm sm:p-7">
       <input name="startAt" type="hidden" value={selectedStartAt} />
       <div className="flex flex-col gap-2">
-        <p className="badge w-fit">Reserve with deposit only</p>
-        <h2 className="section-title">Book your wash</h2>
-        <p className="text-sm leading-6 text-muted">
+        <p className="inline-flex w-fit rounded-sm bg-cyan-100 px-2.5 py-0.5 text-xs font-medium text-cyan-800">Reserve with deposit only</p>
+        <h2 className="text-3xl font-bold tracking-tight text-gray-900">Book your wash</h2>
+        <p className="text-sm leading-6 text-gray-600">
           Choose a service, reserve an open time slot, and pay only the deposit online. The
           remaining balance is collected in person after service.
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Service</span>
           <select
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="serviceId"
             onChange={(event) => setSelectedServiceId(event.target.value)}
             value={selectedServiceId}
@@ -126,10 +126,10 @@ export function BookingForm({
           </select>
         </label>
 
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Date</span>
           <select
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="date"
             onChange={(event) => setSelectedDate(event.target.value)}
             value={selectedDate}
@@ -143,18 +143,18 @@ export function BookingForm({
         </label>
       </div>
 
-      <div className="rounded-[24px] border border-line bg-surface p-4">
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Available start times</p>
-            <p className="text-xs text-muted">
+            <p className="text-xs text-gray-500">
               Slots are generated from weekly availability, blackout rules, and existing bookings.
             </p>
           </div>
           {selectedService && (
-            <div className="text-right text-sm">
+            <div className="text-right text-sm text-gray-700">
               <p className="font-semibold">{formatCurrency(selectedService.depositAmount)} deposit</p>
-              <p className="text-muted">{formatCurrency(selectedService.basePrice)} total</p>
+              <p className="text-gray-600">{formatCurrency(selectedService.basePrice)} total</p>
             </div>
           )}
         </div>
@@ -162,14 +162,14 @@ export function BookingForm({
         {isLoadingSlots ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div className="h-11 animate-pulse rounded-2xl bg-white" key={index} />
+              <div className="h-11 animate-pulse rounded-lg bg-white" key={index} />
             ))}
           </div>
         ) : slots.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {slots.map((slot) => (
               <label
-                className="flex cursor-pointer items-center justify-center rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium has-[:checked]:border-brand has-[:checked]:bg-brand has-[:checked]:text-white"
+                className="flex cursor-pointer items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-700 has-[:checked]:border-cyan-700 has-[:checked]:bg-cyan-700 has-[:checked]:text-white"
                 key={slot.startAt}
               >
                 <input
@@ -189,7 +189,7 @@ export function BookingForm({
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted">No slots are available for the selected date.</p>
+          <p className="text-sm text-gray-600">No slots are available for the selected date.</p>
         )}
       </div>
 
@@ -197,7 +197,7 @@ export function BookingForm({
         {devPrefill ? (
           <div className="md:col-span-2">
             <button
-              className="button-dev"
+              className="inline-flex items-center justify-center rounded-md border border-dashed border-amber-500 bg-amber-100 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-900 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
               onClick={() => setValues((current) => applyBookingFormPrefill(current, devPrefill))}
               type="button"
             >
@@ -205,10 +205,10 @@ export function BookingForm({
             </button>
           </div>
         ) : null}
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">First name</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="firstName"
             onChange={(event) => setValues((current) => ({ ...current, firstName: event.target.value }))}
             placeholder="Jordan"
@@ -216,10 +216,10 @@ export function BookingForm({
             value={values.firstName}
           />
         </label>
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Last name</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="lastName"
             onChange={(event) => setValues((current) => ({ ...current, lastName: event.target.value }))}
             placeholder="Taylor"
@@ -227,10 +227,10 @@ export function BookingForm({
             value={values.lastName}
           />
         </label>
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Email</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="email"
             onChange={(event) => setValues((current) => ({ ...current, email: event.target.value }))}
             placeholder="jordan@example.com"
@@ -238,10 +238,10 @@ export function BookingForm({
             value={values.email}
           />
         </label>
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Phone</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="phone"
             onChange={(event) => setValues((current) => ({ ...current, phone: event.target.value }))}
             placeholder="5551234567"
@@ -252,10 +252,10 @@ export function BookingForm({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Vehicle make</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="make"
             onChange={(event) => setValues((current) => ({ ...current, make: event.target.value }))}
             placeholder="Toyota"
@@ -263,10 +263,10 @@ export function BookingForm({
             value={values.make}
           />
         </label>
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Vehicle model</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="model"
             onChange={(event) => setValues((current) => ({ ...current, model: event.target.value }))}
             placeholder="RAV4"
@@ -274,20 +274,20 @@ export function BookingForm({
             value={values.model}
           />
         </label>
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Year</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="year"
             onChange={(event) => setValues((current) => ({ ...current, year: event.target.value }))}
             placeholder="2022"
             value={values.year}
           />
         </label>
-        <label className="stack">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Color</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="color"
             onChange={(event) => setValues((current) => ({ ...current, color: event.target.value }))}
             placeholder="Pearl white"
@@ -297,7 +297,7 @@ export function BookingForm({
         <label className="stack md:col-span-2">
           <span className="text-sm font-medium">License plate</span>
           <input
-            className="field"
+            className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-cyan-500 focus:ring-cyan-500"
             name="licensePlate"
             onChange={(event) =>
               setValues((current) => ({ ...current, licensePlate: event.target.value }))
@@ -308,7 +308,7 @@ export function BookingForm({
         </label>
       </div>
 
-      <label className="stack">
+      <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">Notes</span>
         <textarea
           className="field min-h-28 resize-y"
@@ -320,13 +320,13 @@ export function BookingForm({
       </label>
 
       {state.status === "error" ? (
-        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {state.message}
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm leading-6 text-muted">
+      <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm leading-6 text-gray-600">
           Deposit is charged now through Stripe. Any remaining balance stays outstanding on the
           booking until it is collected later.
         </p>

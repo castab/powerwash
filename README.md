@@ -29,6 +29,21 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 - Docker Compose for local app/database development with an optional Stripe CLI helper.
 - Railway Dockerfile deployment and Vercel build-command deployment support.
 
+
+## UI System
+
+- The UI uses Tailwind CSS with Flowbite-compatible utility class patterns for navigation, cards, forms, badges, and CTA elements.
+- Migration target is the free/open-source Flowbite component set only (no Flowbite Pro templates/blocks/assets).
+- In restricted environments where `npm install flowbite` is blocked, the codebase can still use Flowbite-style, MIT-compatible markup patterns while preserving existing app behavior.
+
+### Flowbite Migration Map (free components only)
+
+- Header (`src/components/layout/site-header.tsx`) -> Flowbite free navbar pattern (semantic `nav`, responsive spacing, focus-visible link states).
+- Homepage hero/details/services (`src/app/page.tsx`) -> Flowbite free hero/card/badge/button patterns (content preserved).
+- Service cards (`src/components/home/service-card.tsx`) -> Flowbite free card + button + badge patterns.
+- Booking form (`src/components/booking/booking-form.tsx`) -> Flowbite free form controls, radio tiles, alert styles, and CTA buttons while preserving booking handlers/validation.
+- Admin shell (`src/components/admin/admin-shell.tsx`) -> Flowbite free sidebar/card/button patterns while preserving auth/signout behavior.
+
 ## Project Structure
 
 ```text

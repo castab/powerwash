@@ -27,7 +27,7 @@ export default async function BookPage() {
   return (
     <div className="pb-10">
       <SiteHeader />
-      <main className="shell py-4 sm:py-8">
+      <main className="mx-auto w-full max-w-screen-xl px-4 py-4 sm:px-6 sm:py-8 lg:px-8">
         <BookingForm dateOptions={dateOptions} devPrefill={devPrefill} services={serializedServices} />
       </main>
     </div>
