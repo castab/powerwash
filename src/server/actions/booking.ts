@@ -16,6 +16,7 @@ import { reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
+import { getRequestOrigin } from "@/lib/request-origin";
 import { formatCurrency, toStripeCents } from "@/lib/utils";
 
 export type BookingActionState = {
@@ -214,6 +215,7 @@ export async function createBookingCheckoutAction(
 
   try {
     const env = getEnv();
+    const appOrigin = await getRequestOrigin(env.appUrl);
     const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
@@ -242,8 +244,8 @@ export async function createBookingCheckoutAction(
           },
         },
       ],
-      success_url: `${env.appUrl}/booking/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${env.appUrl}/book?serviceId=${booking.serviceId}`,
+      success_url: `${appOrigin}/booking/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appOrigin}/book?serviceId=${booking.serviceId}`,
     });
 
     await prisma.booking.update({
@@ -251,7 +253,7 @@ export async function createBookingCheckoutAction(
       data: { stripeCheckoutSessionId: session.id },
     });
 
-    redirect(session.url ?? `${env.appUrl}/booking/confirmation`);
+    redirect(session.url ?? `${appOrigin}/booking/confirmation`);
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;

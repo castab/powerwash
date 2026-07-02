@@ -346,7 +346,7 @@ Copy `.env.example` to `.env` for local development. Update `.env.example` whene
 | --- | --- | --- |
 | `DATABASE_URL` | Yes | Prisma PostgreSQL connection string. |
 | `DIRECT_URL` | Yes | Direct PostgreSQL connection for Prisma migrations. |
-| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe redirects and emailed links. |
+| `NEXT_PUBLIC_APP_URL` | Yes | Canonical public base URL used for emailed links and as a fallback when request origin cannot be inferred. Stripe checkout redirects use the current request origin when available. |
 | `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key. |
 | `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook`. |
 | `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies. Use a strong value outside local development. |
