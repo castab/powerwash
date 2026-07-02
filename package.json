@@ -17,16 +17,19 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:dev": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
-    "seed:check": "node ./scripts/check-bootstrap.mjs"
+    "seed:check": "tsx scripts/check-bootstrap.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.18.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "dotenv": "^17.4.2",
     "jose": "^6.2.0",
     "next": "^16.2.4",
-    "prisma": "^6.18.0",
+    "pg": "^8.22.0",
+    "prisma": "^7.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "stripe": "^20.4.1",
@@ -43,8 +46,5 @@
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   }
 }

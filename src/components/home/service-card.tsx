@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Service } from "@prisma/client";
+import { Service } from "@/generated/prisma/browser";
 import { formatCurrency } from "@/lib/utils";
 
 export function ServiceCard({ service }: { service: Service }) {

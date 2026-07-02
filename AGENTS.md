@@ -126,7 +126,9 @@ docker compose --profile stripe up stripe-cli
 - `src/server/actions/admin.ts`: admin mutations for services, availability, blackouts, bookings, balance requests, archives, and refunds.
 - `src/lib/auth.ts`: admin session cookie and authorization helpers.
 - `src/lib/env.ts`: environment variable access.
+- `prisma.config.ts`: Prisma v7 CLI configuration for schema, migrations, seed, and database URLs.
 - `prisma/schema.prisma`: Prisma data model and enums.
+- `src/generated/prisma/`: generated Prisma v7 client output. Do not edit by hand.
 - `prisma/migrations/`: database migration history and constraints.
 - `prisma/seed.ts`: bootstrap services, availability, and admin user.
 

@@ -1,4 +1,5 @@
-import { Prisma } from "@prisma/client";
+import { Prisma as BrowserPrisma } from "@/generated/prisma/browser";
+import type { Prisma } from "@/generated/prisma/client";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -11,7 +12,7 @@ export function cn(...inputs: ClassValue[]) {
 export type MoneyInput = Prisma.Decimal | number | string;
 
 function asMoneyNumber(value: MoneyInput) {
-  if (value instanceof Prisma.Decimal) {
+  if (value instanceof BrowserPrisma.Decimal) {
     return value.toNumber();
   }
 
@@ -39,7 +40,7 @@ export function normalizeMoneyInput(value: MoneyInput) {
 }
 
 export function toMoneyDecimal(value: MoneyInput) {
-  return new Prisma.Decimal(normalizeMoneyInput(value));
+  return new BrowserPrisma.Decimal(normalizeMoneyInput(value));
 }
 
 export function formatMoneyInput(value: MoneyInput) {

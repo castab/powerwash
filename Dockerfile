@@ -12,6 +12,7 @@ RUN apt-get update -y \
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 
 RUN npm ci
 RUN npm run prisma:generate

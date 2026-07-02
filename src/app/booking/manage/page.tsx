@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookingStatus, PaymentStatus } from "@prisma/client";
+import { BookingStatus, PaymentStatus } from "@/generated/prisma/browser";
 import {
   canAutoRefundBooking,
   getManagedBookingByToken,

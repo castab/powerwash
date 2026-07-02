@@ -8,7 +8,7 @@ import {
   BookingStatus,
   PaymentStatus,
   type BalanceRequestDeliveryChannel,
-} from "@prisma/client";
+} from "@/generated/prisma/client";
 import { createAdminSession, requireAdmin, verifyPassword } from "@/lib/auth";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
 import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";

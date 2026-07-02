@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";

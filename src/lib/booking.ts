@@ -1,5 +1,5 @@
 import { addMinutes, areIntervalsOverlapping, format, isBefore, set, startOfDay } from "date-fns";
-import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from "@prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { subtractMoney } from "@/lib/utils";

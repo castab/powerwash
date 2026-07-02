@@ -1,4 +1,4 @@
-import { BookingEventType, type Prisma } from "@prisma/client";
+import { BookingEventType, type Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type EventPayload = Prisma.InputJsonValue | null | undefined;
