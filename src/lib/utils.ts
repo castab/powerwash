@@ -11,11 +11,12 @@ export function cn(...inputs: ClassValue[]) {
 
 export type MoneyInput = Prisma.Decimal | number | string;
 
-function asMoneyNumber(value: MoneyInput) {
-  if (value instanceof BrowserPrisma.Decimal) {
-    return value.toNumber();
-  }
+type DecimalLike = {
+  toNumber?: () => number;
+  toString: () => string;
+};
 
+function asMoneyNumber(value: MoneyInput) {
   if (typeof value === "string") {
     const sanitized = value.replace(/[$,\s]/g, "");
 
@@ -26,7 +27,17 @@ function asMoneyNumber(value: MoneyInput) {
     return Number(sanitized);
   }
 
-  return value;
+  if (typeof value === "number") {
+    return value;
+  }
+
+  const decimal = value as DecimalLike;
+
+  if (typeof decimal.toNumber === "function") {
+    return decimal.toNumber();
+  }
+
+  return Number(decimal.toString());
 }
 
 export function normalizeMoneyInput(value: MoneyInput) {

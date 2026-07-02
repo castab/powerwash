@@ -33,11 +33,11 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 
 The app uses Tailwind CSS with shared design tokens in `src/app/globals.css`. Fonts, colors, and palette values should remain interchangeable through `:root` variables and the Tailwind `@theme inline` mapping. Avoid hard-coding brand-specific colors or font choices in page components unless a design direction explicitly calls for it.
 
-Public and customer-facing screens should favor a connected, flowing page structure instead of repeated standalone cards. Prefer broad sections, soft background bands, restrained dividers, generous spacing, and semantic utilities such as `flow-page`, `flow-section`, `soft-band`, `soft-surface`, `surface-block`, `eyebrow`, and `page-title`.
+Public, customer-facing, and admin screens should favor a connected, flowing page structure instead of repeated standalone cards. Prefer broad sections, soft background bands, restrained dividers, generous spacing, and semantic utilities such as `flow-page`, `flow-section`, `soft-band`, `soft-surface`, `surface-block`, `eyebrow`, and `page-title`.
 
 Use contained surfaces when they serve a functional purpose, such as forms, checkout summaries, manage-link details, warnings, errors, or security-sensitive actions. Avoid using the legacy `panel` treatment as the default wrapper for every section.
 
-Admin screens should stay utilitarian and scannable. They may use stronger grouping than public pages, but should still prefer lighter functional surfaces over heavy shadowed cards.
+Admin screens should share the same visual language as the rest of the application, including the admin login page. Keep admin workflows scannable, but use the same soft surfaces, page rhythm, rounded navigation, and token-driven palette as public pages.
 
 ## Project Structure
 
@@ -346,7 +346,7 @@ Copy `.env.example` to `.env` for local development. Update `.env.example` whene
 | --- | --- | --- |
 | `DATABASE_URL` | Yes | Prisma PostgreSQL connection string. |
 | `DIRECT_URL` | Yes | Direct PostgreSQL connection for Prisma migrations. |
-| `NEXT_PUBLIC_APP_URL` | Yes | Public base URL used in Stripe redirects and emailed links. |
+| `NEXT_PUBLIC_APP_URL` | Yes | Canonical public base URL used for emailed links and as a fallback when request origin cannot be inferred. Stripe checkout redirects use the current request origin when available. |
 | `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key. |
 | `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook`. |
 | `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies. Use a strong value outside local development. |

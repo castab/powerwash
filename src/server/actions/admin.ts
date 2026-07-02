@@ -16,6 +16,7 @@ import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events"
 import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
 import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
+import { getRequestOrigin } from "@/lib/request-origin";
 import { getStripe } from "@/lib/stripe";
 import {
   adminLoginSchema,
@@ -317,6 +318,7 @@ export async function requestBookingBalanceAction(formData: FormData) {
   const beforeState = pickBookingEventState(booking);
   const nextVersion = booking.balanceRequestVersion + 1;
   const env = getEnv();
+  const appOrigin = await getRequestOrigin(env.appUrl);
   const manageUrl = getManagementUrlForBooking(booking);
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.create(
@@ -341,8 +343,8 @@ export async function requestBookingBalanceAction(formData: FormData) {
           },
         },
       ],
-      success_url: `${env.appUrl}/booking/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: manageUrl ?? `${env.appUrl}/`,
+      success_url: `${appOrigin}/booking/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: manageUrl ?? `${appOrigin}/`,
     },
     {
       idempotencyKey: `booking-balance-request-${booking.id}-${nextVersion}`,
