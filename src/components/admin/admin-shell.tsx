@@ -8,6 +8,7 @@ const links = [
   { href: "/admin/services", label: "Services" },
   { href: "/admin/availability", label: "Availability" },
   { href: "/admin/blackouts", label: "Blackouts" },
+  { href: "/admin/settings", label: "Settings" },
 ];
 
 export async function AdminShell({
