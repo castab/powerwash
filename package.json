@@ -5,10 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "dev:docker": "next dev --webpack --hostname 0.0.0.0",
-    "build": "next build",
-    "build:app": "next build",
+    "build": "next build && node ./scripts/prepare-standalone.mjs",
+    "build:app": "next build && node ./scripts/prepare-standalone.mjs",
     "build:vercel": "node ./scripts/vercel-build.mjs",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "test": "node --experimental-strip-types src/lib/booking-prefill.test.ts",
     "start:railway": "sh ./scripts/start.sh",
     "lint": "eslint",
