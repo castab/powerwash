@@ -10,7 +10,7 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 - Stripe webhook and confirmation-page reconciliation for payment state changes.
 - Secure customer booking management links sent by email.
 - Customer cancellation flow with automatic deposit refund when cancellation is at least 24 hours before the appointment.
-- Admin dashboard for services, weekly availability, blackout dates, bookings, balance requests, archival, and eligible manual refunds.
+- Admin dashboard for services, weekly availability, blackout dates, bookings, balance requests, archival, eligible manual refunds, and admin password updates.
 - Database-level overlap protection using a PostgreSQL exclusion constraint.
 - Business-logic overlap validation using serializable transactions.
 - Booking event audit trail for payments, admin actions, cancellations, manage links, archival, and balance requests.
@@ -142,7 +142,8 @@ Admin screens should share the same visual language as the rest of the applicati
 - Login verifies bcrypt password hashes and writes a signed HTTP-only cookie.
 - `middleware.ts` blocks `/admin/*` routes when the cookie is absent.
 - Server actions call `requireAdmin()` where authenticated admin identity is required.
-- Admins can manage services, weekly availability, blackout windows, booking status/reschedule notes, balance requests, archive state, and eligible late-cancellation refunds.
+- Admins can manage services, weekly availability, blackout windows, booking status/reschedule notes, balance requests, archive state, eligible late-cancellation refunds, and their own password from `/admin/settings`.
+- Admin password updates require the current password, a new password, and confirmation of the new password before replacing the stored bcrypt hash.
 
 ### Manage Links
 

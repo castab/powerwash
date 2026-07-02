@@ -9,7 +9,7 @@ import {
   PaymentStatus,
   type BalanceRequestDeliveryChannel,
 } from "@/generated/prisma/client";
-import { createAdminSession, requireAdmin, verifyPassword } from "@/lib/auth";
+import { createAdminSession, hashPassword, requireAdmin, verifyPassword } from "@/lib/auth";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
 import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
@@ -20,6 +20,7 @@ import { getRequestOrigin } from "@/lib/request-origin";
 import { getStripe } from "@/lib/stripe";
 import {
   adminLoginSchema,
+  adminPasswordUpdateSchema,
   availabilitySchema,
   blackoutSchema,
   bookingAdminUpdateSchema,
@@ -42,6 +43,11 @@ function canArchiveBooking(status: BookingStatus) {
 }
 
 const EMAIL_DELIVERY_CHANNEL: BalanceRequestDeliveryChannel = "EMAIL";
+
+export type AdminPasswordUpdateState = {
+  error?: string;
+  success?: string;
+};
 
 export async function loginAdminAction(_state: { error?: string }, formData: FormData) {
   const parsed = adminLoginSchema.safeParse({
@@ -78,6 +84,43 @@ export async function loginAdminAction(_state: { error?: string }, formData: For
   });
 
   redirect("/admin/bookings");
+}
+
+export async function updateAdminPasswordAction(
+  _state: AdminPasswordUpdateState,
+  formData: FormData,
+): Promise<AdminPasswordUpdateState> {
+  const admin = await requireAdmin();
+  const parsed = adminPasswordUpdateSchema.safeParse({
+    currentPassword: formData.get("currentPassword"),
+    newPassword: formData.get("newPassword"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid password update." };
+  }
+
+  const validPassword = await verifyPassword(parsed.data.currentPassword, admin.passwordHash);
+  if (!validPassword) {
+    return { error: "Current password is incorrect." };
+  }
+
+  const passwordHash = await hashPassword(parsed.data.newPassword);
+  await prisma.adminUser.update({
+    where: { id: admin.id },
+    data: { passwordHash },
+  });
+
+  await createAdminSession({
+    adminId: admin.id,
+    email: admin.email,
+    name: admin.name,
+  });
+
+  revalidatePath("/admin/settings");
+
+  return { success: "Password updated." };
 }
 
 export async function saveServiceAction(formData: FormData) {

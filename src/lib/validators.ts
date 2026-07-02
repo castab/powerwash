@@ -49,6 +49,17 @@ export const adminLoginSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters."),
 });
 
+export const adminPasswordUpdateSchema = z
+  .object({
+    currentPassword: z.string().min(8, "Current password must be at least 8 characters."),
+    newPassword: z.string().min(8, "New password must be at least 8 characters."),
+    confirmPassword: z.string().min(8, "Confirm the new password."),
+  })
+  .refine((value) => value.newPassword === value.confirmPassword, {
+    message: "New passwords do not match.",
+    path: ["confirmPassword"],
+  });
+
 export const serviceSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3),
