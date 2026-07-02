@@ -83,16 +83,44 @@ textarea {
   @apply rounded-[28px] border border-line bg-card shadow-[0_18px_50px_rgba(21,33,41,0.08)];
 }
 
+.flow-page {
+  @apply overflow-hidden pb-10;
+}
+
+.flow-section {
+  @apply py-10 sm:py-14;
+}
+
+.soft-band {
+  @apply bg-surface/70;
+}
+
+.soft-surface {
+  @apply rounded-[2rem] bg-white/45 ring-1 ring-foreground/5;
+}
+
+.surface-block {
+  @apply rounded-[2rem] bg-surface-strong/60 p-5 ring-1 ring-foreground/5 sm:p-6;
+}
+
+.eyebrow {
+  @apply text-sm font-semibold uppercase tracking-[0.24em] text-brand-strong;
+}
+
+.page-title {
+  @apply text-4xl font-semibold tracking-[-0.04em] text-foreground sm:text-5xl;
+}
+
 .field {
   @apply w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-foreground outline-none ring-0 placeholder:text-muted focus:border-brand focus:shadow-[0_0_0_4px_rgba(14,116,144,0.12)];
 }
 
 .button-primary {
-  @apply inline-flex items-center justify-center rounded-full bg-brand px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(14,116,144,0.18)] hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0;
+  @apply inline-flex items-center justify-center rounded-full bg-brand px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(14,116,144,0.18)] hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60;
 }
 
 .button-secondary {
-  @apply inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-semibold text-foreground hover:-translate-y-0.5 hover:bg-surface;
+  @apply inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-semibold text-foreground hover:bg-surface;
 }
 
 .button-dev {

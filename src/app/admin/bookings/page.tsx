@@ -294,7 +294,7 @@ function BookingCard({
   );
 
   return (
-    <div className="rounded-[24px] border border-line bg-surface p-4" key={booking.id}>
+    <div className="rounded-[24px] bg-surface/80 p-4 ring-1 ring-foreground/5" key={booking.id}>
       {booking.status === "CANCELLED" &&
       booking.paymentStatus === "PARTIALLY_PAID" &&
       booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" ? (
@@ -311,7 +311,7 @@ function BookingCard({
         <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-[20px] text-left marker:hidden">
           {summary}
         </summary>
-        <div className="mt-4 border-t border-line pt-4">{details}</div>
+        <div className="mt-4 border-t border-foreground/10 pt-4">{details}</div>
       </details>
     </div>
   );
@@ -328,10 +328,10 @@ export default async function AdminBookingsPage() {
     >
       <section className="stack">
         {Object.entries(grouped).map(([day, dayBookings]) => (
-          <div className="panel min-w-0 p-5" key={day}>
+          <div className="surface-block min-w-0" key={day}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="badge">Calendar view</p>
+                <p className="eyebrow">Calendar view</p>
                 <h2 className="mt-2 text-xl font-semibold">
                   {formatBusinessDate(parseBusinessDateTimeLocalValue(`${day}T12:00`))}
                 </h2>
@@ -348,10 +348,10 @@ export default async function AdminBookingsPage() {
         ))}
       </section>
 
-      <section className="panel min-w-0 p-5">
+      <section className="surface-block min-w-0">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="badge">Archived</p>
+            <p className="eyebrow">Archived</p>
             <h2 className="mt-2 text-xl font-semibold">Archived bookings</h2>
           </div>
           <p className="text-sm text-muted">{archived.length} archived</p>

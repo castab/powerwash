@@ -80,14 +80,14 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
         : `Stripe accepted the payment for ${booking.firstName}. Refresh this page if the booking has not updated yet.`;
 
   return (
-    <main className="shell py-8">
-      <div className="panel mx-auto max-w-3xl p-6 sm:p-8">
-        <p className="badge">Booking confirmation</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight">{title}</h1>
+    <main className="shell py-8 sm:py-12">
+      <div className="mx-auto max-w-4xl">
+        <p className="eyebrow">Booking confirmation</p>
+        <h1 className="page-title mt-4">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-muted">{description}</p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="soft-surface p-5">
             <p className="text-sm text-muted">Service</p>
             <p className="mt-2 text-lg font-semibold">{booking.service.name}</p>
             <p className="mt-1 text-sm text-muted">
@@ -98,7 +98,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
               {booking.vehicleMake} {booking.vehicleModel}
             </p>
           </div>
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="soft-surface p-5">
             <p className="text-sm text-muted">Payment summary</p>
             <p className="mt-2 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
             <p className="mt-1 text-sm">
@@ -118,7 +118,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
             </p>
           </div>
         ) : manageUrl ? (
-          <div className="mt-6 rounded-[24px] border border-line bg-surface p-5">
+          <div className="surface-block mt-6">
             <p className="text-sm font-semibold">Bookmark your management link</p>
             <p className="mt-2 text-sm text-muted">
               This is the same secure link sent by email. Save it if you want direct access to manage the booking later.
@@ -128,7 +128,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
                 Manage booking
               </Link>
             </div>
-            <p className="mt-4 break-all rounded-2xl border border-line bg-white px-4 py-3 text-sm">
+            <p className="mt-4 break-all rounded-2xl bg-white/70 px-4 py-3 text-sm ring-1 ring-foreground/10">
               {manageUrl}
             </p>
           </div>

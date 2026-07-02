@@ -151,6 +151,15 @@ docker compose --profile stripe up stripe-cli
 - When adding email-triggering behavior, consider duplicate sends, idempotency, and state transitions.
 - For local webhook testing, use the Compose `stripe-cli` profile and update `STRIPE_WEBHOOK_SECRET` from the current listener output.
 
+## UI Styling Guidance
+
+- Keep fonts, colors, and palettes token-driven through `src/app/globals.css`; do not hard-code brand-specific values in components unless explicitly requested.
+- Public and customer-facing pages should feel connected and flowing. Prefer section rhythm, soft bands, and low-contrast surfaces over repeated standalone cards.
+- Prefer shared primitives such as `flow-page`, `flow-section`, `soft-band`, `soft-surface`, `surface-block`, `eyebrow`, and `page-title` for new UI work.
+- Do not default to wrapping every content group in `panel`. Use card-like containment only when it has a functional purpose, such as forms, payment summaries, warnings, errors, manage-link details, or security-sensitive actions.
+- Admin screens should remain utilitarian, dense, and scannable. Align them visually with lighter surfaces, but do not make admin workflows feel like marketing pages.
+- Preserve stable button interactions. Buttons should provide color/state feedback without hover movement that makes controls feel jumpy.
+
 ## Final Response Expectations
 
 When finishing a change, include:
@@ -159,3 +168,19 @@ When finishing a change, include:
 - Verification commands run and their results.
 - Any checks not run and why.
 - Documentation updates made, or why none were needed.
+
+<!-- BEGIN:nextjs-agent-rules -->
+ 
+# Next.js: ALWAYS read docs before coding
+ 
+Before any Next.js work:
+1. Read `node_modules/next/dist/docs` as a directory.
+2. Navigate by reading subdirectories, usually `01-app`.
+3. Use Grep only after confirming the docs directory exists.
+4. Do not rely on Glob alone to determine whether local Next docs are present.
+
+If `node_modules` is missing, it's likely that the project's dependencies need to be installed before proceeding.
+
+Your training data is outdated — the docs are the source of truth.
+ 
+<!-- END:nextjs-agent-rules -->

@@ -77,8 +77,8 @@ export default async function BookingManagePage({ searchParams }: Props) {
   if (!token) {
     return (
       <main className="shell py-8">
-        <div className="panel mx-auto max-w-3xl p-6 sm:p-8">
-          <p className="badge">Manage booking</p>
+        <div className="surface-block mx-auto max-w-3xl">
+          <p className="eyebrow">Manage booking</p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Invalid management link</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             This link is missing the secure token needed to view the booking.
@@ -98,8 +98,8 @@ export default async function BookingManagePage({ searchParams }: Props) {
   if (!booking) {
     return (
       <main className="shell py-8">
-        <div className="panel mx-auto max-w-3xl p-6 sm:p-8">
-          <p className="badge">Manage booking</p>
+        <div className="surface-block mx-auto max-w-3xl">
+          <p className="eyebrow">Manage booking</p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Link no longer valid</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             This link is invalid or has been replaced by a newer email. Use the latest management
@@ -128,10 +128,10 @@ export default async function BookingManagePage({ searchParams }: Props) {
   const isArchived = Boolean(booking.archivedAt);
 
   return (
-    <main className="shell py-8">
-      <div className="panel mx-auto max-w-4xl p-6 sm:p-8">
-        <p className="badge">Manage booking</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight">
+    <main className="shell py-8 sm:py-12">
+      <div className="mx-auto max-w-4xl">
+        <p className="eyebrow">Manage booking</p>
+        <h1 className="page-title mt-4">
           {booking.service.name} booking
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted">
@@ -162,7 +162,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
         ) : null}
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="soft-surface p-5">
             <p className="text-sm text-muted">Appointment</p>
             <p className="mt-2 text-lg font-semibold">
               {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
@@ -179,7 +179,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             </p>
           </div>
 
-          <div className="rounded-[24px] bg-surface p-5">
+          <div className="soft-surface p-5">
             <p className="text-sm text-muted">Payment and status</p>
             <p className="mt-2 text-sm">Status: {booking.status.replaceAll("_", " ")}</p>
             <p className="mt-1 text-sm">Payment: {booking.paymentStatus.replaceAll("_", " ")}</p>
@@ -205,7 +205,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
                 {formatBusinessDateTimeLong(booking.refundedAt)}
               </p>
             ) : null}
-            <div className="mt-4 rounded-2xl border border-line bg-white px-4 py-3 text-sm text-muted">
+            <div className="mt-4 rounded-2xl bg-white/70 px-4 py-3 text-sm text-muted ring-1 ring-foreground/10">
               {autoRefundEligible
                 ? "Canceling now will automatically refund the deposit."
                 : supportEmail
@@ -216,7 +216,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <form action={resendAction} className="rounded-[24px] border border-line p-5">
+          <form action={resendAction} className="surface-block">
             <h2 className="text-lg font-semibold">Resend secure link</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Email a fresh management link and invalidate older links.
@@ -231,7 +231,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             ) : null}
           </form>
 
-          <form action={cancelAction} className="rounded-[24px] border border-line p-5">
+          <form action={cancelAction} className="surface-block">
             <h2 className="text-lg font-semibold">Cancel booking</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Confirmed bookings canceled at least 24 hours before the appointment receive an

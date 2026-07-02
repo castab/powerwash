@@ -29,6 +29,16 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 - Docker Compose for local app/database development with an optional Stripe CLI helper.
 - Railway Dockerfile deployment and Vercel build-command deployment support.
 
+## UI Styling Direction
+
+The app uses Tailwind CSS with shared design tokens in `src/app/globals.css`. Fonts, colors, and palette values should remain interchangeable through `:root` variables and the Tailwind `@theme inline` mapping. Avoid hard-coding brand-specific colors or font choices in page components unless a design direction explicitly calls for it.
+
+Public and customer-facing screens should favor a connected, flowing page structure instead of repeated standalone cards. Prefer broad sections, soft background bands, restrained dividers, generous spacing, and semantic utilities such as `flow-page`, `flow-section`, `soft-band`, `soft-surface`, `surface-block`, `eyebrow`, and `page-title`.
+
+Use contained surfaces when they serve a functional purpose, such as forms, checkout summaries, manage-link details, warnings, errors, or security-sensitive actions. Avoid using the legacy `panel` treatment as the default wrapper for every section.
+
+Admin screens should stay utilitarian and scannable. They may use stronger grouping than public pages, but should still prefer lighter functional surfaces over heavy shadowed cards.
+
 ## Project Structure
 
 ```text
@@ -60,6 +70,7 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 ## Key Files
 
 - `src/app/page.tsx`: public home page and service listing.
+- `src/app/globals.css`: Tailwind theme tokens and shared UI primitives.
 - `src/app/book/page.tsx`: customer booking page.
 - `src/components/booking/booking-form.tsx`: booking UI, slot fetch behavior, and dev prefill integration.
 - `src/app/api/availability/route.ts`: public slot lookup endpoint.

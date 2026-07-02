@@ -17,7 +17,7 @@ export default async function AdminBlackoutsPage() {
       title="Blackout Dates"
       description="Block one-off closures, events, or maintenance windows. Slot generation excludes any interval that overlaps an active blackout."
     >
-      <section className="panel p-5">
+      <section className="surface-block">
         <h2 className="text-lg font-semibold">Add blackout</h2>
         <form action={saveBlackoutAction} className="mt-4 grid gap-4 md:grid-cols-2">
           <input className="field" name="startsAt" type="datetime-local" />
@@ -29,7 +29,7 @@ export default async function AdminBlackoutsPage() {
 
       <section className="grid gap-4">
         {blackouts.map((blackout) => (
-          <div className="panel p-5" key={blackout.id}>
+          <div className="surface-block" key={blackout.id}>
             <p className="text-sm font-semibold">
               {format(blackout.startsAt, "MMM d, yyyy h:mm a")} -{" "}
               {format(blackout.endsAt, "MMM d, yyyy h:mm a")}
