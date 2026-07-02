@@ -27,7 +27,7 @@ require_env RESEND_API_KEY
 require_env EMAIL_FROM
 require_env SUPPORT_EMAIL
 
-if [ ! -d "node_modules/@prisma/client" ]; then
+if [ ! -f "src/generated/prisma/client.ts" ]; then
   log "Prisma client not found, generating"
   npm run prisma:generate
 else

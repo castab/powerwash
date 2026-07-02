@@ -1,4 +1,4 @@
-import { type BalanceRequestDeliveryChannel, type Prisma } from "@prisma/client";
+import { type BalanceRequestDeliveryChannel, type Prisma } from "@/generated/prisma/client";
 import { getEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
 import { formatCurrency } from "@/lib/utils";

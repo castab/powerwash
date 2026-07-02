@@ -48,7 +48,7 @@ Admin screens should stay utilitarian and scannable. They may use stronger group
 |  |- schema.prisma
 |  `- seed.ts
 |- scripts/
-|  |- check-bootstrap.mjs
+|  |- check-bootstrap.ts
 |  |- start.sh
 |  `- vercel-build.mjs
 |- src/
@@ -58,12 +58,14 @@ Admin screens should stay utilitarian and scannable. They may use stronger group
 |  |  |- book/
 |  |  `- booking/
 |  |- components/
+|  |- generated/prisma/
 |  |- lib/
 |  `- server/actions/
 |- AGENTS.md
 |- Dockerfile
 |- docker-compose.yml
 |- middleware.ts
+|- prisma.config.ts
 `- .env.example
 ```
 
@@ -82,6 +84,8 @@ Admin screens should stay utilitarian and scannable. They may use stronger group
 - `src/server/actions/admin.ts`: admin login, service/availability/blackout CRUD, booking updates, balance requests, archive actions, and manual refund action.
 - `src/lib/auth.ts`: admin cookie creation and admin validation.
 - `src/lib/env.ts`: runtime environment variable reads and local dev booking prefill parsing.
+- `src/generated/prisma/`: generated Prisma v7 client output. This directory is generated and ignored by Git.
+- `prisma.config.ts`: Prisma CLI configuration, including schema path, migration path, seed command, and database URLs.
 - `prisma/schema.prisma`: data model, enums, indexes, and relations.
 - `prisma/migrations/`: database migrations, including overlap constraints.
 - `prisma/seed.ts`: default services, availability, and admin user.
@@ -179,6 +183,16 @@ Important database protections:
 - `booking_no_overlap` exclusion constraint using `tstzrange`.
 
 When schema, migrations, seed data, or model semantics change, update this README, `.env.example` if relevant, and `AGENTS.md` if AI guidance changes.
+
+Prisma v7 notes:
+
+- The Prisma CLI reads its connection URL from `prisma.config.ts`, not datasource `url` fields in `prisma/schema.prisma`.
+- `prisma.config.ts` uses `DIRECT_URL` when present, then falls back to `DATABASE_URL`, then to the local PostgreSQL example URL for client generation before `.env` exists.
+- The generated client uses the `prisma-client` generator and is written to `src/generated/prisma`.
+- Application code imports Prisma types, enums, and `PrismaClient` from `@/generated/prisma/client`.
+- Runtime PostgreSQL connections use the Prisma `pg` driver adapter from `@prisma/adapter-pg`.
+- App runtime uses `DATABASE_URL`; seed/bootstrap scripts use `DIRECT_URL` when present, then `DATABASE_URL`. All adapter paths fall back to the local example URL when neither variable is set.
+- `dotenv` is loaded explicitly for Prisma CLI config and standalone seed/bootstrap scripts.
 
 ## Local Setup
 
@@ -380,6 +394,7 @@ Notes:
 - `npm test` currently runs `src/lib/booking-prefill.test.ts`.
 - `src/lib/utils.test.ts` is present but is not currently included in the package `test` script.
 - Prisma client generation runs after install through `postinstall`, and can also be run manually with `npm run prisma:generate`.
+- Prisma v7 does not auto-run seed during migration commands; run `npm run prisma:seed` explicitly when seed data is needed.
 
 ## Documentation Policy
 
@@ -421,9 +436,9 @@ Deployment files:
 - `.dockerignore`: excludes local-only files from the Docker build context.
 - `scripts/start.sh`: runtime orchestration for env validation, migrations, seed-once, and app startup.
 - `scripts/prepare-standalone.mjs`: copies static assets into the Next.js standalone output after `next build`.
-- `scripts/check-bootstrap.mjs`: database sentinel check used to decide whether bootstrap seeding is needed.
+- `scripts/check-bootstrap.ts`: database sentinel check used to decide whether bootstrap seeding is needed.
 
-The production image installs OpenSSL before `npm ci` so Prisma can detect the correct runtime library target during client generation.
+The production image copies `prisma.config.ts` before `npm ci` because `postinstall` runs Prisma client generation and Prisma v7 reads CLI configuration from that file.
 
 Every Railway container start performs this sequence:
 

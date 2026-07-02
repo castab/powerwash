@@ -1,4 +1,4 @@
-import { BookingEventType, BookingStatus, PaymentStatus } from "@prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus } from "@/generated/prisma/client";
 import { ensureInitialManageBookingEmail } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { prisma } from "@/lib/prisma";
