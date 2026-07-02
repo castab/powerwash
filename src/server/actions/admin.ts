@@ -10,6 +10,7 @@ import {
   type BalanceRequestDeliveryChannel,
 } from "@/generated/prisma/client";
 import { createAdminSession, hashPassword, requireAdmin, verifyPassword } from "@/lib/auth";
+import { isImmutableBookingState } from "@/lib/booking-state";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
 import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
@@ -254,6 +255,12 @@ export async function updateBookingAction(formData: FormData) {
 
   if (!booking) {
     throw new Error("Booking not found.");
+  }
+
+  if (isImmutableBookingState(booking)) {
+    throw new Error(
+      "Bookings in a final state cannot be updated. The customer must create a new booking if service is still needed.",
+    );
   }
 
   const beforeState = pickBookingEventState(booking);

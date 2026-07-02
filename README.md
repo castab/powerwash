@@ -143,6 +143,7 @@ Admin screens should share the same visual language as the rest of the applicati
 - `middleware.ts` blocks `/admin/*` routes when the cookie is absent.
 - Server actions call `requireAdmin()` where authenticated admin identity is required.
 - Admins can manage services, weekly availability, blackout windows, booking status/reschedule notes, balance requests, archive state, eligible late-cancellation refunds, and their own password from `/admin/settings`.
+- Bookings in final states are locked from further booking status, schedule, and admin note updates. This includes canceled bookings after refund or failed deposit capture, completed and paid bookings, and no-shows.
 - Admin password updates require the current password, a new password, and confirmation of the new password before replacing the stored bcrypt hash.
 
 ### Manage Links
@@ -162,6 +163,7 @@ Admin screens should share the same visual language as the rest of the applicati
 - Cancellations at least 24 hours before the appointment attempt an automatic Stripe deposit refund.
 - Cancellations inside 24 hours are allowed only after confirmation and do not automatically refund.
 - Admins can issue eligible late-cancellation deposit refunds from the dashboard.
+- Final booking states are no longer editable from the admin dashboard. This includes canceled bookings after refund or failed deposit capture, completed and paid bookings, and no-shows.
 - Terminal bookings such as `COMPLETED` and `NO_SHOW` cannot be canceled online.
 - Fully paid bookings are treated as not cancellable through the customer manage flow.
 
