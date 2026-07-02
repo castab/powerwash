@@ -16,7 +16,7 @@ export default async function AdminServicesPage() {
       title="Services"
       description="Create, edit, and deactivate service definitions. Each service keeps a fixed duration, base price, and required booking deposit."
     >
-      <section className="panel p-5">
+      <section className="surface-block">
         <h2 className="text-lg font-semibold">Create service</h2>
         <form action={saveServiceAction} className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="stack md:col-span-2">
@@ -71,7 +71,7 @@ export default async function AdminServicesPage() {
 
       <section className="grid gap-4">
         {services.map((service) => (
-          <form action={saveServiceAction} className="panel grid gap-4 p-5 md:grid-cols-2" key={service.id}>
+          <form action={saveServiceAction} className="surface-block grid gap-4 md:grid-cols-2" key={service.id}>
             <input name="id" type="hidden" value={service.id} />
             <label className="stack md:col-span-2">
               <span className="text-sm font-medium">Service name</span>

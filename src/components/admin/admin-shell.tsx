@@ -30,7 +30,7 @@ export async function AdminShell({
   return (
     <div className="shell overflow-x-hidden py-6">
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="panel h-fit min-w-0 p-5">
+        <aside className="surface-block h-fit min-w-0">
           <p className="text-lg font-semibold">Powerwash Admin</p>
           <nav className="mt-5 flex flex-col gap-2">
             {links.map((link) => (
@@ -48,8 +48,8 @@ export async function AdminShell({
           </form>
         </aside>
         <main className="stack min-w-0">
-          <div className="panel p-6">
-            <p className="badge mb-3">Admin dashboard</p>
+          <div className="surface-block">
+            <p className="eyebrow mb-3">Admin dashboard</p>
             <h1 className="section-title">{title}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{description}</p>
           </div>

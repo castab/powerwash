@@ -3,14 +3,12 @@ import { getEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
 import { formatCurrency } from "@/lib/utils";
 
-const balancePaymentInclude = {
-  service: true,
-} satisfies Prisma.BookingInclude;
-
 const EMAIL_CHANNEL: BalanceRequestDeliveryChannel = "EMAIL";
 
 export type BalancePaymentBooking = Prisma.BookingGetPayload<{
-  include: typeof balancePaymentInclude;
+  include: {
+    service: true;
+  };
 }>;
 
 type DeliveryPayload = {

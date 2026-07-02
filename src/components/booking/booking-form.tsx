@@ -90,25 +90,25 @@ export function BookingForm({
 
   if (!services.length) {
     return (
-      <div className="panel p-6 text-sm text-muted">
+      <div className="surface-block text-sm text-muted">
         No active services are available right now. Please check back later.
       </div>
     );
   }
 
   return (
-    <form action={formAction} className="panel stack p-5 sm:p-7">
+    <form action={formAction} className="soft-surface p-5 sm:p-7">
       <input name="startAt" type="hidden" value={selectedStartAt} />
-      <div className="flex flex-col gap-2">
-        <p className="badge w-fit">Reserve with deposit only</p>
-        <h2 className="section-title">Book your wash</h2>
+      <div>
+        <p className="eyebrow">Reserve with deposit only</p>
+        <h2 className="mt-3 text-3xl font-semibold tracking-tight">Book your wash</h2>
         <p className="text-sm leading-6 text-muted">
           Choose a service, reserve an open time slot, and pay only the deposit online. The
           remaining balance is collected in person after service.
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
         <label className="stack">
           <span className="text-sm font-medium">Service</span>
           <select
@@ -143,7 +143,7 @@ export function BookingForm({
         </label>
       </div>
 
-      <div className="rounded-[24px] border border-line bg-surface p-4">
+      <div className="mt-5 rounded-[2rem] bg-surface-strong/50 p-4 ring-1 ring-foreground/5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Available start times</p>
@@ -162,14 +162,14 @@ export function BookingForm({
         {isLoadingSlots ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div className="h-11 animate-pulse rounded-2xl bg-white" key={index} />
+              <div className="h-11 animate-pulse rounded-2xl bg-white/70" key={index} />
             ))}
           </div>
         ) : slots.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {slots.map((slot) => (
               <label
-                className="flex cursor-pointer items-center justify-center rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium has-[:checked]:border-brand has-[:checked]:bg-brand has-[:checked]:text-white"
+                className="flex cursor-pointer items-center justify-center rounded-2xl bg-white/70 px-4 py-3 text-sm font-medium ring-1 ring-foreground/10 has-[:checked]:bg-brand has-[:checked]:text-white has-[:checked]:ring-brand"
                 key={slot.startAt}
               >
                 <input
@@ -193,7 +193,7 @@ export function BookingForm({
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
         {devPrefill ? (
           <div className="md:col-span-2">
             <button
@@ -251,7 +251,7 @@ export function BookingForm({
         </label>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
         <label className="stack">
           <span className="text-sm font-medium">Vehicle make</span>
           <input
@@ -308,7 +308,7 @@ export function BookingForm({
         </label>
       </div>
 
-      <label className="stack">
+      <label className="stack mt-5">
         <span className="text-sm font-medium">Notes</span>
         <textarea
           className="field min-h-28 resize-y"
@@ -325,7 +325,7 @@ export function BookingForm({
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-5 flex flex-col gap-3 border-t border-foreground/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm leading-6 text-muted">
           Deposit is charged now through Stripe. Any remaining balance stays outstanding on the
           booking until it is collected later.

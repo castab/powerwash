@@ -11,9 +11,9 @@ export default function AdminLoginPage() {
 
   return (
     <main className="shell flex min-h-screen items-center justify-center py-8">
-      <form action={formAction} className="panel stack w-full max-w-md p-6 sm:p-8">
+      <form action={formAction} className="surface-block stack w-full max-w-md sm:p-8">
         <div>
-          <p className="badge">Admin login</p>
+          <p className="eyebrow">Admin login</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">Secure dashboard access</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             Sign in with an admin user seeded in PostgreSQL. Sessions are stored in a signed
