@@ -46,4 +46,4 @@ else
 fi
 
 log "Starting Next.js"
-exec npm run start -- --hostname "${HOSTNAME:-0.0.0.0}" --port "${PORT:-3000}"
+exec npm run start

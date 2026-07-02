@@ -409,7 +409,10 @@ Deployment files:
 - `Dockerfile`: production image build for Railway.
 - `.dockerignore`: excludes local-only files from the Docker build context.
 - `scripts/start.sh`: runtime orchestration for env validation, migrations, seed-once, and app startup.
+- `scripts/prepare-standalone.mjs`: copies static assets into the Next.js standalone output after `next build`.
 - `scripts/check-bootstrap.mjs`: database sentinel check used to decide whether bootstrap seeding is needed.
+
+The production image installs OpenSSL before `npm ci` so Prisma can detect the correct runtime library target during client generation.
 
 Every Railway container start performs this sequence:
 
@@ -418,9 +421,9 @@ Every Railway container start performs this sequence:
 3. Run `prisma migrate deploy`.
 4. Check whether any `AdminUser` records exist.
 5. Run the seed script only if no admin users exist.
-6. Start the app with `next start`.
+6. Start the app with `node .next/standalone/server.js`.
 
-This means migrations run on every app start, bootstrap seed runs only once for an empty database, and later restarts skip seeding automatically.
+This means migrations run on every app start, bootstrap seed runs only once for an empty database, and later restarts skip seeding automatically. Because `next.config.ts` uses `output: "standalone"`, production starts the generated standalone server directly rather than `next start`.
 
 Railway setup:
 
