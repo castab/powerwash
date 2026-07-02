@@ -159,7 +159,7 @@ docker compose --profile stripe up stripe-cli
 - Public and customer-facing pages should feel connected and flowing. Prefer section rhythm, soft bands, and low-contrast surfaces over repeated standalone cards.
 - Prefer shared primitives such as `flow-page`, `flow-section`, `soft-band`, `soft-surface`, `surface-block`, `eyebrow`, and `page-title` for new UI work.
 - Do not default to wrapping every content group in `panel`. Use card-like containment only when it has a functional purpose, such as forms, payment summaries, warnings, errors, manage-link details, or security-sensitive actions.
-- Admin screens should remain utilitarian, dense, and scannable. Align them visually with lighter surfaces, but do not make admin workflows feel like marketing pages.
+- Admin screens should share the same visual language as the rest of the application, including the admin login page. Keep admin workflows scannable while using the same soft surfaces, page rhythm, rounded navigation, and token-driven palette as public pages.
 - Preserve stable button interactions. Buttons should provide color/state feedback without hover movement that makes controls feel jumpy.
 
 ## Final Response Expectations

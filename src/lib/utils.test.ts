@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Prisma as BrowserPrisma } from "@/generated/prisma/browser";
+import { Prisma as ClientPrisma } from "@/generated/prisma/client";
 import {
   formatInBusinessTimeZone,
   normalizeMoneyInput,
@@ -46,4 +48,12 @@ runTest("normalizeMoneyInput rejects blank string input", () => {
 
 runTest("normalizeMoneyInput still supports formatted currency strings", () => {
   assert.equal(normalizeMoneyInput(" $1,234.5 "), "1234.50");
+});
+
+runTest("normalizeMoneyInput supports generated browser Decimal values", () => {
+  assert.equal(normalizeMoneyInput(new BrowserPrisma.Decimal("42.5")), "42.50");
+});
+
+runTest("normalizeMoneyInput supports generated client Decimal values", () => {
+  assert.equal(normalizeMoneyInput(new ClientPrisma.Decimal("42.5")), "42.50");
 });
