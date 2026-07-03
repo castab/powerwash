@@ -252,7 +252,13 @@ export async function createHeldBooking(input: {
 
 export async function getAdminBookings() {
   const baseWhere = {
-    startAt: { gte: startOfDay(new Date()) },
+    OR: [
+      { startAt: { gte: startOfDay(new Date()) } },
+      {
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] },
+        paymentStatus: PaymentStatus.PAID,
+      },
+    ],
     status: {
       in: [
         BookingStatus.PENDING_PAYMENT,

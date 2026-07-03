@@ -9,6 +9,7 @@ import {
 } from "@/lib/utils";
 import {
   archiveBookingAction,
+  issueFullBookingRefundAction,
   issueBookingRefundAction,
   requestBookingBalanceAction,
   unarchiveBookingAction,
@@ -96,6 +97,11 @@ function BookingCard({
   archived?: boolean;
 }) {
   const isImmutableBooking = isImmutableBookingState(booking);
+  const canIssueFullRefund =
+    (booking.status === "CONFIRMED" || booking.status === "COMPLETED") &&
+    booking.paymentStatus === "PAID" &&
+    Boolean(booking.stripePaymentIntentId) &&
+    (!booking.totalPrice.gt(booking.depositAmount) || Boolean(booking.balancePaymentIntentId));
 
   const summary = (
     <>
@@ -282,6 +288,13 @@ function BookingCard({
             <form action={issueBookingRefundAction}>
               <input name="bookingId" type="hidden" value={booking.id} />
               <SubmitButton className="w-full justify-center">Issue deposit refund</SubmitButton>
+            </form>
+          ) : null}
+
+          {canIssueFullRefund ? (
+            <form action={issueFullBookingRefundAction}>
+              <input name="bookingId" type="hidden" value={booking.id} />
+              <SubmitButton className="w-full justify-center">Issue full refund</SubmitButton>
             </form>
           ) : null}
 

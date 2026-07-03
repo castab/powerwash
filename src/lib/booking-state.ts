@@ -9,7 +9,10 @@ export function isImmutableBookingState(booking: {
   }
 
   if (booking.status === BookingStatus.COMPLETED) {
-    return booking.paymentStatus === PaymentStatus.PAID;
+    return (
+      booking.paymentStatus === PaymentStatus.PAID ||
+      booking.paymentStatus === PaymentStatus.REFUNDED
+    );
   }
 
   if (booking.status === BookingStatus.CANCELLED) {

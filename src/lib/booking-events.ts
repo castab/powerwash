@@ -38,6 +38,7 @@ export function pickBookingEventState(
     refundAmount: Prisma.Decimal | number | string | null;
     refundReason: string | null;
     refundedAt: Date | null;
+    stripeBalanceRefundId: string | null;
     balanceRequestVersion: number;
     balanceRequestedAt: Date | null;
     balanceRequestDeliveryChannel: string | null;

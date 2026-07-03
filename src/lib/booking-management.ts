@@ -280,6 +280,60 @@ function buildAdminRefundedCancellationEmail(booking: ManagedBooking) {
   };
 }
 
+function buildAdminCancelledRefundedEmail(booking: ManagedBooking) {
+  const serviceDate = formatBookingDateTime(booking.startAt);
+
+  return {
+    subject: `Your ${booking.service.name} booking was administratively canceled`,
+    text: [
+      `Hi ${booking.firstName},`,
+      "",
+      `Your ${booking.service.name} booking for ${serviceDate} was administratively canceled.`,
+      `Your deposit refund of ${formatCurrency(booking.refundAmount ?? booking.depositAmount)} has been issued.`,
+      "Depending on your bank, it may take a few business days for the refund to appear.",
+      "",
+      getSupportCopy(),
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${booking.firstName},</p>
+        <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> was administratively canceled.</p>
+        <p>Your deposit refund of <strong>${formatCurrency(booking.refundAmount ?? booking.depositAmount)}</strong> has been issued.</p>
+        <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
+        <p>${getSupportCopy()}</p>
+      </div>
+    `,
+  };
+}
+
+function buildAdminFullRefundEmail(booking: ManagedBooking) {
+  const serviceDate = formatBookingDateTime(booking.startAt);
+
+  return {
+    subject: `Your ${booking.service.name} booking was fully refunded`,
+    text: [
+      `Hi ${booking.firstName},`,
+      "",
+      `A full refund has been issued for your ${booking.service.name} booking on ${serviceDate}.`,
+      `Refund amount: ${formatCurrency(booking.refundAmount ?? booking.totalPrice)}`,
+      "This includes your deposit and remaining balance payment.",
+      "Depending on your bank, it may take a few business days for the refund to appear.",
+      "",
+      getSupportCopy(),
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${booking.firstName},</p>
+        <p>A full refund has been issued for your <strong>${booking.service.name}</strong> booking on <strong>${serviceDate}</strong>.</p>
+        <p>Refund amount: <strong>${formatCurrency(booking.refundAmount ?? booking.totalPrice)}</strong></p>
+        <p>This includes your deposit and remaining balance payment.</p>
+        <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
+        <p>${getSupportCopy()}</p>
+      </div>
+    `,
+  };
+}
+
 function buildManualCancellationEmail(booking: ManagedBooking) {
   const serviceDate = formatBookingDateTime(booking.startAt);
   const env = getEnv();
@@ -424,7 +478,12 @@ export function getSupportEmail() {
 
 export async function sendCancellationOutcomeEmail(
   bookingId: string,
-  outcome: "cancelled_refunded" | "cancelled_contact_admin" | "admin_refunded",
+  outcome:
+    | "cancelled_refunded"
+    | "cancelled_contact_admin"
+    | "admin_refunded"
+    | "admin_cancelled_refunded"
+    | "admin_full_refunded",
 ) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -435,12 +494,19 @@ export async function sendCancellationOutcomeEmail(
     throw new Error("Booking not found.");
   }
 
-  const email =
-    outcome === "cancelled_refunded"
-      ? buildRefundedCancellationEmail(booking)
-      : outcome === "admin_refunded"
-        ? buildAdminRefundedCancellationEmail(booking)
-        : buildManualCancellationEmail(booking);
+  let email: ReturnType<typeof buildRefundedCancellationEmail>;
+
+  if (outcome === "cancelled_refunded") {
+    email = buildRefundedCancellationEmail(booking);
+  } else if (outcome === "admin_cancelled_refunded") {
+    email = buildAdminCancelledRefundedEmail(booking);
+  } else if (outcome === "admin_full_refunded") {
+    email = buildAdminFullRefundEmail(booking);
+  } else if (outcome === "admin_refunded") {
+    email = buildAdminRefundedCancellationEmail(booking);
+  } else {
+    email = buildManualCancellationEmail(booking);
+  }
 
   await sendEmail({
     to: booking.email,
