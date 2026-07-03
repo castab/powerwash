@@ -1,5 +1,6 @@
 import { AdminShell } from "@/components/admin/admin-shell";
 import { getAdminBookings, type AdminBooking } from "@/lib/booking";
+import { isImmutableBookingState } from "@/lib/booking-state";
 import {
   formatCurrency,
   formatInBusinessTimeZone,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/utils";
 import {
   archiveBookingAction,
+  issueFullBookingRefundAction,
   issueBookingRefundAction,
   requestBookingBalanceAction,
   unarchiveBookingAction,
@@ -94,6 +96,13 @@ function BookingCard({
   booking: AdminBooking;
   archived?: boolean;
 }) {
+  const isImmutableBooking = isImmutableBookingState(booking);
+  const canIssueFullRefund =
+    (booking.status === "CONFIRMED" || booking.status === "COMPLETED") &&
+    booking.paymentStatus === "PAID" &&
+    Boolean(booking.stripePaymentIntentId) &&
+    (!booking.totalPrice.gt(booking.depositAmount) || Boolean(booking.balancePaymentIntentId));
+
   const summary = (
     <>
       <div className="min-w-0 space-y-1 text-sm">
@@ -214,7 +223,7 @@ function BookingCard({
         </div>
 
         <div className="grid min-w-0 gap-3 lg:min-w-80">
-          {!archived ? (
+          {!archived && !isImmutableBooking ? (
             <form action={updateBookingAction} className="grid gap-3">
               <input name="bookingId" type="hidden" value={booking.id} />
               <input
@@ -237,6 +246,16 @@ function BookingCard({
               />
               <SubmitButton className="w-full justify-center">Save booking</SubmitButton>
             </form>
+          ) : null}
+
+          {!archived && isImmutableBooking ? (
+            <div className="rounded-[20px] border border-line bg-white p-4 text-sm text-muted">
+              <p className="font-semibold text-foreground">Booking locked</p>
+              <p className="mt-1">
+                This booking is in a final state. Status, schedule, and admin notes are locked; if
+                service is still needed, the customer must create a new booking.
+              </p>
+            </div>
           ) : null}
 
           {!archived &&
@@ -269,6 +288,13 @@ function BookingCard({
             <form action={issueBookingRefundAction}>
               <input name="bookingId" type="hidden" value={booking.id} />
               <SubmitButton className="w-full justify-center">Issue deposit refund</SubmitButton>
+            </form>
+          ) : null}
+
+          {canIssueFullRefund ? (
+            <form action={issueFullBookingRefundAction}>
+              <input name="bookingId" type="hidden" value={booking.id} />
+              <SubmitButton className="w-full justify-center">Issue full refund</SubmitButton>
             </form>
           ) : null}
 

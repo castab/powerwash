@@ -115,6 +115,8 @@ Admin screens should share the same visual language as the rest of the applicati
 - Remaining balance collection is initiated by an admin from the bookings dashboard.
 - Balance checkout completion marks `paymentStatus` as `PAID`, zeros `balanceDue`, and records the balance payment intent.
 - Balance payment does not automatically mark the service `COMPLETED`.
+- Admin cancellation of a deposit-paid booking refunds the deposit, marks the booking `CANCELLED` and `REFUNDED`, and sends an administrative cancellation email.
+- Admin full refunds are available for `CONFIRMED` or `COMPLETED` bookings with `PAID` payment state and recorded Stripe payment intents. They refund both the deposit and balance payment, then mark payment `REFUNDED`; confirmed bookings are also cancelled, while completed bookings keep their service status.
 - Stripe webhook reconciliation and confirmation-page reconciliation share `src/lib/stripe-reconciliation.ts`.
 
 ### Scheduling Rules
@@ -143,6 +145,7 @@ Admin screens should share the same visual language as the rest of the applicati
 - `middleware.ts` blocks `/admin/*` routes when the cookie is absent.
 - Server actions call `requireAdmin()` where authenticated admin identity is required.
 - Admins can manage services, weekly availability, blackout windows, booking status/reschedule notes, balance requests, archive state, eligible late-cancellation refunds, and their own password from `/admin/settings`.
+- Bookings in final states are locked from further booking status, schedule, and admin note updates. This includes canceled bookings after refund or failed deposit capture, completed paid or refunded bookings, and no-shows.
 - Admin password updates require the current password, a new password, and confirmation of the new password before replacing the stored bcrypt hash.
 
 ### Manage Links
@@ -161,7 +164,11 @@ Admin screens should share the same visual language as the rest of the applicati
 - Customers can cancel confirmed, partially paid bookings through a valid manage link.
 - Cancellations at least 24 hours before the appointment attempt an automatic Stripe deposit refund.
 - Cancellations inside 24 hours are allowed only after confirmation and do not automatically refund.
+- Admin cancellation of deposit-paid bookings refunds the deposit regardless of the customer cancellation window and sends an email noting the booking was administratively canceled.
 - Admins can issue eligible late-cancellation deposit refunds from the dashboard.
+- Admins can issue full refunds for confirmed or completed paid bookings when both Stripe payment references needed for the paid amounts are present.
+- Paid confirmed or completed bookings remain visible in the admin bookings dashboard for refund handling even when their appointment date is in the past.
+- Final booking states are no longer editable from the admin dashboard. This includes canceled bookings after refund or failed deposit capture, completed paid or refunded bookings, and no-shows.
 - Terminal bookings such as `COMPLETED` and `NO_SHOW` cannot be canceled online.
 - Fully paid bookings are treated as not cancellable through the customer manage flow.
 
@@ -170,7 +177,7 @@ Admin screens should share the same visual language as the rest of the applicati
 Main models:
 
 - `Service`: service name, slug, duration, base price, deposit, and active flag.
-- `Booking`: customer, vehicle, appointment range, payment state, Stripe references, manage-link metadata, balance request metadata, refund metadata, archival metadata, and audit events.
+- `Booking`: customer, vehicle, appointment range, payment state, Stripe deposit, balance, and refund references, manage-link metadata, balance request metadata, refund metadata, archival metadata, and audit events.
 - `AvailabilityRule`: recurring weekly hours.
 - `BlackoutDate`: one-off blocked windows.
 - `AdminUser`: dashboard login identity.

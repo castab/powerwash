@@ -10,6 +10,7 @@ import {
   type BalanceRequestDeliveryChannel,
 } from "@/generated/prisma/client";
 import { createAdminSession, hashPassword, requireAdmin, verifyPassword } from "@/lib/auth";
+import { isImmutableBookingState } from "@/lib/booking-state";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
 import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
@@ -30,6 +31,7 @@ import {
 import {
   parseBusinessDateTimeLocalValue,
   slugify,
+  subtractMoney,
   toMoneyDecimal,
   toStripeCents,
 } from "@/lib/utils";
@@ -43,6 +45,13 @@ function canArchiveBooking(status: BookingStatus) {
 }
 
 const EMAIL_DELIVERY_CHANNEL: BalanceRequestDeliveryChannel = "EMAIL";
+
+function canIssueFullRefund(booking: { status: BookingStatus; paymentStatus: PaymentStatus }) {
+  return (
+    (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.COMPLETED) &&
+    booking.paymentStatus === PaymentStatus.PAID
+  );
+}
 
 export type AdminPasswordUpdateState = {
   error?: string;
@@ -256,6 +265,12 @@ export async function updateBookingAction(formData: FormData) {
     throw new Error("Booking not found.");
   }
 
+  if (isImmutableBookingState(booking)) {
+    throw new Error(
+      "Bookings in a final state cannot be updated. The customer must create a new booking if service is still needed.",
+    );
+  }
+
   const beforeState = pickBookingEventState(booking);
   const data: {
     status?: BookingStatus;
@@ -264,6 +279,10 @@ export async function updateBookingAction(formData: FormData) {
     cancelledAt?: Date | null;
     adminNotes?: string;
     paymentStatus?: PaymentStatus;
+    refundAmount?: typeof booking.depositAmount;
+    refundedAt?: Date;
+    refundReason?: string;
+    stripeRefundId?: string;
   } = {};
 
   let eventType: BookingEventType = BookingEventType.BOOKING_UPDATED;
@@ -271,11 +290,44 @@ export async function updateBookingAction(formData: FormData) {
   if (parsed.data.status && parsed.data.status !== booking.status) {
     data.status = parsed.data.status;
     if (parsed.data.status === BookingStatus.CANCELLED) {
+      if (booking.paymentStatus === PaymentStatus.PAID) {
+        throw new Error("Fully paid bookings must be refunded with the full refund action.");
+      }
+
       data.cancelledAt = new Date();
       if (booking.paymentStatus === PaymentStatus.PENDING) {
         data.paymentStatus = PaymentStatus.FAILED;
       }
       eventType = BookingEventType.BOOKING_CANCELLED;
+
+      if (booking.paymentStatus === PaymentStatus.PARTIALLY_PAID) {
+        if (!booking.stripePaymentIntentId) {
+          throw new Error("Stripe payment reference is missing for this booking.");
+        }
+
+        const stripe = getStripe();
+        const refund = await stripe.refunds.create(
+          {
+            payment_intent: booking.stripePaymentIntentId,
+            amount: toStripeCents(booking.depositAmount),
+            reason: "requested_by_customer",
+            metadata: {
+              bookingId: booking.id,
+              refundSource: "admin-cancellation",
+            },
+          },
+          {
+            idempotencyKey: `admin-cancel-deposit-refund-${booking.id}`,
+          },
+        );
+
+        data.paymentStatus = PaymentStatus.REFUNDED;
+        data.refundAmount = booking.depositAmount;
+        data.refundedAt = new Date();
+        data.refundReason = "ADMIN_CANCELLED_DEPOSIT_REFUND";
+        data.stripeRefundId = refund.id;
+        eventType = BookingEventType.REFUND_ISSUED;
+      }
     }
   }
 
@@ -312,6 +364,14 @@ export async function updateBookingAction(formData: FormData) {
     beforeState,
     afterState: pickBookingEventState(updated),
   });
+
+  if (eventType === BookingEventType.REFUND_ISSUED && updated.refundReason === "ADMIN_CANCELLED_DEPOSIT_REFUND") {
+    try {
+      await sendCancellationOutcomeEmail(booking.id, "admin_cancelled_refunded");
+    } catch (error) {
+      console.error("Failed to send admin cancellation refund email", error);
+    }
+  }
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/confirmation");
@@ -590,6 +650,139 @@ export async function issueBookingRefundAction(formData: FormData) {
     await sendCancellationOutcomeEmail(booking.id, "admin_refunded");
   } catch (error) {
     console.error("Failed to send admin refund email", error);
+  }
+
+  revalidatePath("/admin/bookings");
+  revalidatePath("/booking/manage");
+}
+
+export async function issueFullBookingRefundAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const bookingId = formData.get("bookingId");
+
+  if (typeof bookingId !== "string" || bookingId.length === 0) {
+    throw new Error("Booking not found.");
+  }
+
+  let booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      service: true,
+    },
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  if (!canIssueFullRefund(booking)) {
+    throw new Error("Only confirmed or completed paid bookings can be fully refunded.");
+  }
+
+  if (!booking.stripePaymentIntentId) {
+    throw new Error("Stripe deposit payment reference is missing for this booking.");
+  }
+
+  const balanceRefundAmount = subtractMoney(booking.totalPrice, booking.depositAmount);
+  const requiresBalanceRefund = balanceRefundAmount.gt(0);
+  const balancePaymentIntentId = booking.balancePaymentIntentId;
+
+  if (requiresBalanceRefund && !balancePaymentIntentId) {
+    throw new Error("Stripe balance payment reference is missing for this booking.");
+  }
+
+  const beforeState = pickBookingEventState(booking);
+  const stripe = getStripe();
+  const refundedAt = new Date();
+
+  if (!booking.stripeRefundId) {
+    const depositRefund = await stripe.refunds.create(
+      {
+        payment_intent: booking.stripePaymentIntentId,
+        amount: toStripeCents(booking.depositAmount),
+        reason: "requested_by_customer",
+        metadata: {
+          bookingId: booking.id,
+          refundSource: "admin-full-refund-deposit",
+        },
+      },
+      {
+        idempotencyKey: `admin-full-deposit-refund-${booking.id}`,
+      },
+    );
+
+    booking = await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        refundAmount: booking.depositAmount,
+        refundReason: "ADMIN_FULL_REFUND_IN_PROGRESS",
+        stripeRefundId: depositRefund.id,
+      },
+      include: {
+        service: true,
+      },
+    });
+  }
+
+  if (requiresBalanceRefund && !booking.stripeBalanceRefundId) {
+    if (!balancePaymentIntentId) {
+      throw new Error("Stripe balance payment reference is missing for this booking.");
+    }
+
+    const balanceRefund = await stripe.refunds.create(
+      {
+        payment_intent: balancePaymentIntentId,
+        amount: toStripeCents(balanceRefundAmount),
+        reason: "requested_by_customer",
+        metadata: {
+          bookingId: booking.id,
+          refundSource: "admin-full-refund-balance",
+        },
+      },
+      {
+        idempotencyKey: `admin-full-balance-refund-${booking.id}`,
+      },
+    );
+
+    booking = await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        refundAmount: booking.totalPrice,
+        refundReason: "ADMIN_FULL_REFUND_IN_PROGRESS",
+        stripeBalanceRefundId: balanceRefund.id,
+      },
+      include: {
+        service: true,
+      },
+    });
+  }
+
+  const updated = await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      status: booking.status === BookingStatus.CONFIRMED ? BookingStatus.CANCELLED : booking.status,
+      paymentStatus: PaymentStatus.REFUNDED,
+      balanceDue: 0,
+      refundAmount: booking.totalPrice,
+      refundedAt,
+      refundReason: "ADMIN_FULL_REFUND",
+      cancelledAt: booking.status === BookingStatus.CONFIRMED ? (booking.cancelledAt ?? refundedAt) : booking.cancelledAt,
+    },
+  });
+
+  await createBookingEvent({
+    bookingId: booking.id,
+    type: BookingEventType.REFUND_ISSUED,
+    actorAdminUserId: admin.id,
+    actorLabel: admin.email,
+    beforeState,
+    afterState: pickBookingEventState(updated),
+  });
+
+  try {
+    await sendCancellationOutcomeEmail(booking.id, "admin_full_refunded");
+  } catch (error) {
+    console.error("Failed to send full refund email", error);
   }
 
   revalidatePath("/admin/bookings");
