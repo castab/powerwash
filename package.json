@@ -12,6 +12,8 @@
     "start": "node .next/standalone/server.js",
     "test": "node ./scripts/run-tests.mjs",
     "start:railway": "sh ./scripts/start.sh",
+    "sweep": "node --experimental-strip-types --import ./scripts/test-resolve-hook.mjs scripts/sweep-stuck-bookings.ts",
+    "sweep:railway": "sh ./scripts/sweep.sh",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",

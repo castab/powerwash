@@ -31,6 +31,9 @@ export const RATE_LIMITS = {
   // 10 booking-checkout attempts per 10 minutes, per IP (each creates a DB hold
   // and a Stripe Checkout session, so this is the expensive path worth protecting).
   bookingCheckout: { limit: 10, windowMs: 10 * 60 * 1000 },
+  // 60 confirmation-status polls per minute, per IP — the confirmation page polls
+  // every 3s, so this leaves ample headroom for a handful of concurrent tabs.
+  confirmationStatus: { limit: 60, windowMs: 60 * 1000 },
 } as const;
 
 // Bound the number of tracked keys so a flood of unique keys cannot grow the map

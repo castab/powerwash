@@ -248,6 +248,9 @@ export async function createBookingCheckoutAction(
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      // Deferred payment methods (ACH and friends) settle over days, which is
+      // incompatible with the short slot hold — keep Checkout to instant methods.
+      payment_method_types: ["card"],
       customer_email: booking.email,
       // Expire the Checkout session together with the hold so a lapsed hold
       // can neither block the slot nor be paid for after it is released.
@@ -340,11 +343,14 @@ export async function resendManagedBookingLinkAction(token: string) {
   }
 }
 
-export async function reconcileBookingConfirmationAction(formData: FormData) {
-  const sessionId = formData.get("sessionId");
-
-  if (typeof sessionId !== "string" || sessionId.length === 0) {
-    redirect("/booking/confirmation");
+// Invoked by the confirmation page's poll loop while a payment is finalizing.
+// The webhook remains the fast path; this is the on-page fallback that pulls
+// the session state from Stripe when the webhook is late or lost. The debounce
+// keeps a polling tab from hammering Stripe — the client fires this at most a
+// couple of times per polling window, spaced wider than the debounce.
+export async function pollConfirmationReconcileAction(sessionId: string): Promise<{ ok: boolean }> {
+  if (typeof sessionId !== "string" || sessionId.length === 0 || sessionId.length > 500) {
+    return { ok: false };
   }
 
   const now = Date.now();
@@ -352,9 +358,13 @@ export async function reconcileBookingConfirmationAction(formData: FormData) {
   pruneRecentConfirmationReconciliations(now, config);
   const lastAttemptAt = recentConfirmationReconciliations.get(sessionId) ?? 0;
 
-  if (now - lastAttemptAt >= config.debounceMs) {
-    recentConfirmationReconciliations.set(sessionId, now);
+  if (now - lastAttemptAt < config.debounceMs) {
+    return { ok: true };
+  }
 
+  recentConfirmationReconciliations.set(sessionId, now);
+
+  try {
     const result = await reconcileCheckoutSession({
       sessionId,
       trigger: "booking-confirmation",
@@ -365,7 +375,10 @@ export async function reconcileBookingConfirmationAction(formData: FormData) {
       revalidatePath("/booking/manage");
       revalidatePath("/admin/bookings");
     }
-  }
 
-  redirect(`/booking/confirmation?session_id=${encodeURIComponent(sessionId)}`);
+    return { ok: true };
+  } catch (error) {
+    console.error("Failed to reconcile checkout session from confirmation poll", error);
+    return { ok: false };
+  }
 }

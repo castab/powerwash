@@ -77,7 +77,10 @@ Admin screens should share the same visual language as the rest of the applicati
 - `src/app/book/page.tsx`: customer booking page.
 - `src/components/booking/booking-form.tsx`: booking UI, slot fetch behavior, and dev prefill integration.
 - `src/app/api/availability/route.ts`: public slot lookup endpoint.
-- `src/server/actions/booking.ts`: booking checkout action, customer cancellation, manage-link resend, and confirmation reconciliation action.
+- `src/server/actions/booking.ts`: booking checkout action, customer cancellation, manage-link resend, and the throttled confirmation-poll reconcile action.
+- `src/app/booking/confirmation/confirmation-finalizer.tsx`: client poll loop shown while a payment is syncing; refreshes the server-rendered page on a terminal state and hands off to email after the polling window.
+- `src/app/api/booking/confirmation-status/route.ts`: DB-only booking-state probe for the confirmation poll (never calls Stripe, never returns the manage URL).
+- `src/lib/booking-sweeper.ts` / `scripts/sweep-stuck-bookings.ts` / `scripts/sweep.sh`: scheduled reconciliation sweeper (stuck sessions, orphaned holds, unsent manage/recovery emails) and its Railway cron entry points.
 - `src/lib/booking.ts`: slot lookup queries, held booking creation, expired-hold release, and overlap checks.
 - `src/lib/booking-slots.ts`: pure slot computation anchored to the business time zone.
 - `src/lib/business-time.ts`: business time zone formatting, parsing, and business-day helpers.
@@ -115,8 +118,9 @@ Admin screens should share the same visual language as the rest of the applicati
 5. The server validates input with `bookingSchema`.
 6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 35 minutes in the future.
 7. The server creates a Stripe Checkout session for the deposit with `expires_at` matched to the hold expiry and redirects the customer to Stripe. If session creation fails, the held booking is released immediately so the slot is not blocked by an orphaned hold.
-8. Stripe sends a webhook for `checkout.session.completed` or `checkout.session.expired`.
-9. The customer returns to `/booking/confirmation?session_id=...`, which can retry reconciliation if the webhook has not completed yet.
+8. Stripe sends a webhook for `checkout.session.completed`, `checkout.session.expired`, or (as a safety net) the async-payment events.
+9. The customer returns to `/booking/confirmation?session_id=...`. While the payment is still syncing, the page polls a DB-only status endpoint automatically (with up to two throttled Stripe re-checks) and flips to the final view on its own; after ~60 seconds it tells the customer they can close the page and that the outcome will arrive by email.
+10. If the deposit never completes (abandoned or failed checkout), the customer receives a one-time recovery email inviting them to rebook; if the payment completed but a webhook was missed, the scheduled sweeper reconciles the booking and sends the manage-link email.
 
 ### Payment Semantics
 
@@ -131,7 +135,21 @@ Admin screens should share the same visual language as the rest of the applicati
 - Balance payment does not automatically mark the service `COMPLETED`.
 - Admin cancellation of a deposit-paid booking refunds the deposit, marks the booking `CANCELLED` and `REFUNDED`, and sends an administrative cancellation email.
 - Admin full refunds are available for `CONFIRMED` or `COMPLETED` bookings with `PAID` payment state and recorded Stripe payment intents. They refund both the deposit and balance payment, then mark payment `REFUNDED`; confirmed bookings are also cancelled, while completed bookings keep their service status.
-- Stripe webhook reconciliation and confirmation-page reconciliation share `src/lib/stripe-reconciliation.ts`. The manage-link email these triggers send is best-effort: an email failure is logged but does not fail reconciliation, so the webhook still returns 200 and Stripe does not enter a retry/re-send loop.
+- Stripe webhook reconciliation, confirmation-page reconciliation, and the scheduled sweeper share `src/lib/stripe-reconciliation.ts`. The manage-link email these triggers send is best-effort: an email failure is logged but does not fail reconciliation, so the webhook still returns 200 and Stripe does not enter a retry/re-send loop.
+- When a deposit hold ends `CANCELLED`/`FAILED` (expired session, lazy cleanup, or async-payment failure), the customer receives a one-time recovery email ("booking wasn't completed, no charge was made, book again here"). Delivery is claimed atomically via `recoveryEmailSentAt` — the same claim/release pattern as the manage-link email — so the webhook, confirmation page, and sweeper can race without double-sending, and a failed send is retried by the next sweeper run.
+- Checkout is restricted to instant payment methods (`payment_method_types: ["card"]`) for both deposit and balance sessions. Deferred methods such as ACH settle over days, which is incompatible with the 35-minute hold model; do not enable them in the Stripe dashboard. As a safety net the webhook still handles `checkout.session.async_payment_succeeded` (normal completed path) and `checkout.session.async_payment_failed` (dedicated path: release the hold, send the recovery email, or clear a dead balance session — necessary because a failed async payment leaves the session `complete`/`unpaid`, which the normal reconciler treats as a no-op and which never emits `checkout.session.expired`).
+
+### Payment Reconciliation Sweeper
+
+`src/lib/booking-sweeper.ts` (entry: `scripts/sweep-stuck-bookings.ts`, run with `npm run sweep`) is the scheduled safety net behind the webhook and the confirmation page. It runs every 5 minutes as a Railway cron service and processes five phases, each capped at 25 rows per run with a 4-minute soft deadline:
+
+1. `deposit-sessions`: `PENDING_PAYMENT` holds with a checkout session older than 2 minutes are re-reconciled against Stripe — a missed `completed` webhook confirms the booking and sends the manage-link email; a missed `expired` webhook cancels the hold and sends the recovery email.
+2. `orphaned-holds`: lapsed holds with no Stripe session (checkout creation failed and the inline release also failed) are released.
+3. `manage-emails`: `CONFIRMED` bookings whose manage-link email never went out are retried.
+4. `recovery-emails`: recently expired holds (24-hour lookback, so a first deploy does not email historical rows) still owed a recovery email are retried.
+5. `balance-sessions`: outstanding balance checkout sessions are re-reconciled; still-open sessions no-op.
+
+Every mutation goes through the idempotent reconciler or a claim-based email sender, so sweeper runs are safe concurrently with webhooks and with each other. Logs are prefixed `[sweeper]`; exit codes: 0 clean, 1 some items failed (retried next run), 2 fatal.
 
 ### Scheduling Rules
 
@@ -180,10 +198,12 @@ Admin screens should share the same visual language as the rest of the applicati
 - Admin login: 5 failed attempts per 15 minutes, tracked per IP and per email. The limiter is checked before the bcrypt comparison, so throttling stays cheap under a password-spray attack.
 - Public availability endpoint (`/api/availability`): 60 requests per minute per IP. Over-limit requests return HTTP `429` with a `Retry-After` header. The limit is generous enough that the booking form's date/service slot lookups are unaffected in normal use.
 - Booking checkout (`createBookingCheckoutAction`): 10 attempts per 10 minutes per IP, checked before a hold and Stripe Checkout session are created, because that is the expensive public path.
+- Confirmation status polling (`/api/booking/confirmation-status`): 60 requests per minute per IP. The endpoint is a DB-only read (never calls Stripe), and the confirmation page polls it every 3 seconds for at most a minute. The Stripe-touching reconcile action keeps its own 30-second per-session debounce.
 - Limiter state is in-process only, so limits are per-instance and reset on restart. This is acceptable for the single-instance Railway deployment. On multi-instance or serverless hosting, treat these limits as best-effort abuse protection rather than a globally coordinated guarantee, and consider a shared store (e.g. Redis) if stronger guarantees are needed.
 
 ### Manage Links
 
+- Design principle: customers never create an account, username, or password. The magic link (plus the emails that deliver it) is the entire customer auth surface, chosen deliberately to avoid forcing yet another credential on customers for a service they book a few times a year. New customer-facing features must work within this model — do not introduce customer login flows.
 - Customer management links point to `/booking/manage?token=...`.
 - Tokens are signed HMAC payloads, not database-stored raw tokens.
 - Token payload contains `bookingId`, `manageTokenVersion`, and `manageTokenRotatedAt`.
@@ -438,7 +458,7 @@ npm run build
 Notes:
 
 - `npm test` runs `scripts/run-tests.mjs`, which discovers and runs **every** `src/**/*.test.ts` file in its own `node --experimental-strip-types` child process and fails if any file fails. `scripts/test-resolve-hook.mjs` teaches Node the `@/*` path alias and extensionless imports so tests can import app modules without a bundler.
-- Current coverage: slot generation and business-time/day math (`booking-slots.test.ts`), money and timezone/DST helpers (`utils.test.ts`), rate limiting (`rate-limit.test.ts`), dev booking prefill (`booking-prefill.test.ts`), manage-link token sign/verify/tamper/rotation (`manage-token.test.ts`), Stripe reconciliation decision table for deposit/balance × completed/expired × already-reconciled/stale-version/wrong-session (`stripe-reconciliation-decisions.test.ts`), immutable-booking-state rules (`booking-state.test.ts`), and the service/availability admin-form schemas' create-vs-edit `id` handling (`validators.test.ts`).
+- Current coverage: slot generation and business-time/day math (`booking-slots.test.ts`), money and timezone/DST helpers (`utils.test.ts`), rate limiting (`rate-limit.test.ts`), dev booking prefill (`booking-prefill.test.ts`), manage-link token sign/verify/tamper/rotation (`manage-token.test.ts`), Stripe reconciliation decision table for deposit/balance × completed/expired × already-reconciled/stale-version/wrong-session plus the recovery-email predicate (`stripe-reconciliation-decisions.test.ts`), the sweeper's phase filters and cutoff arithmetic (`booking-sweeper.test.ts`), immutable-booking-state rules (`booking-state.test.ts`), and the service/availability admin-form schemas' create-vs-edit `id` handling (`validators.test.ts`).
 - Pure logic is favored for tests. DB-dependent paths (the `createHeldBooking` race, exclusion-constraint rejection, and reconciliation's persistence/events) are still only exercised against a real Postgres and remain a follow-up for an integration harness.
 - Prisma client generation runs after install through `postinstall`, and can also be run manually with `npm run prisma:generate`.
 - Prisma v7 does not auto-run seed during migration commands; run `npm run prisma:seed` explicitly when seed data is needed.
@@ -453,6 +473,7 @@ At minimum, consider whether to update:
 - `.env.example` for every environment variable addition, rename, removal, or format/default change.
 - `AGENTS.md` for AI-specific instructions, invariants, commands, or repo conventions.
 - Prisma migrations and schema notes when database behavior changes.
+- `docs/issues/` for known-but-deferred work items (numbered markdown files with findings, a resolution plan, and acceptance criteria).
 
 If a change does not require documentation updates, call that out explicitly in the change summary or pull request notes.
 
@@ -470,8 +491,11 @@ https://your-domain.com/api/stripe/webhook
 
 - `checkout.session.completed`
 - `checkout.session.expired`
+- `checkout.session.async_payment_succeeded`
+- `checkout.session.async_payment_failed`
 
 5. Set `STRIPE_WEBHOOK_SECRET` from the webhook endpoint signing secret.
+6. Keep deferred payment methods (ACH and similar) disabled: Checkout sessions are created with `payment_method_types: ["card"]` because multi-day settlement is incompatible with the 35-minute booking hold. The async-payment events above are subscribed as a safety net only.
 
 ## Railway Deployment
 
@@ -536,6 +560,32 @@ npm run prisma:seed
 
 Because startup uses `AdminUser` existence as the seed sentinel, automatic seed will not rerun while admin users remain present.
 
+### Railway Cron Service (Booking Sweeper)
+
+The booking sweeper (see "Payment Reconciliation Sweeper" above) runs as a second Railway service built from the same repo and Dockerfile:
+
+1. In the same Railway project, add another service from this repo (same Dockerfile deploy).
+2. Set the service's Custom Start Command to `sh ./scripts/sweep.sh`.
+3. Set the service's Cron Schedule to `*/5 * * * *`. The process exits after each run; Railway skips a scheduled run if the previous one is still going, and the sweeper's internal 4-minute soft deadline keeps runs inside the cadence.
+4. Give the cron service the same environment variables as the web service (use Railway shared/reference variables). All of them are required — `scripts/sweep.sh` runs the same env validation as `start.sh`, and `getEnv()` hard-requires the secrets in production even though the sweeper never uses the admin session secret. `PORT` is unused.
+
+`scripts/sweep.sh` intentionally does not run migrations or seeding — the web service owns those, and a cron tick must never race a deploy's `prisma migrate deploy`.
+
+Expected cron run logs:
+
+```text
+[railway-sweep] Validating environment
+[railway-sweep] Running booking sweeper
+[sweeper] summary phase=deposit-sessions processed=0 failed=0
+[sweeper] summary phase=orphaned-holds processed=0 failed=0
+[sweeper] summary phase=manage-emails processed=0 failed=0
+[sweeper] summary phase=recovery-emails processed=0 failed=0
+[sweeper] summary phase=balance-sessions processed=0 failed=0
+[sweeper] done in 42ms failed=0 deadlineHit=false
+```
+
+To verify the whole safety net end-to-end in production, temporarily disable the Stripe webhook endpoint in the Stripe dashboard, make a test booking, and watch the sweeper confirm it within one cron cycle (the booking's event history will show `actorLabel: "sweeper"`). Re-enable the webhook afterwards.
+
 ## Vercel Deployment
 
 Vercel does not run the Railway startup script, so this repo includes a dedicated build command in `vercel.json`.
@@ -561,6 +611,6 @@ Notes:
 - Currency values are stored as dollar decimals with cent precision.
 - The current implementation assumes a single service bay. If the business later needs multiple simultaneous bays, add a resource dimension to `Booking` and the exclusion constraint.
 - PWA support is intentionally minimal to keep the core booking flow prioritized.
-- Treat Stripe webhooks as the source of truth for payment completion, with confirmation-page reconciliation as a fallback for delayed webhooks.
+- Treat Stripe webhooks as the source of truth for payment completion, with the confirmation page's automatic poll as the on-page fallback for delayed webhooks and the scheduled sweeper as the last-resort safety net for missed webhooks and unsent emails.
 - The confirmation-page reconciliation debounce (`recentConfirmationReconciliations` in `src/server/actions/booking.ts`) is an in-memory, per-instance map, not a global lock. On a multi-instance or serverless deploy each instance keeps its own map, so the same session can be reconciled once per instance. This is harmless because reconciliation is idempotent and the webhook remains authoritative; do not rely on it as a distributed guard.
 - Treat management links as security-sensitive signed tokens. Do not log raw tokens or weaken signature/rotation behavior.

@@ -1,0 +1,4 @@
+ALTER TABLE "Booking"
+  ADD COLUMN "recoveryEmailSentAt" TIMESTAMP(3);
+
+ALTER TYPE "BookingEventType" ADD VALUE 'PAYMENT_RECOVERY_EMAIL_SENT';

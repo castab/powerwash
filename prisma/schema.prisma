@@ -45,6 +45,7 @@ enum BookingEventType {
   MANAGE_LINK_ROTATED
   BOOKING_ARCHIVED
   BOOKING_UNARCHIVED
+  PAYMENT_RECOVERY_EMAIL_SENT
 }
 
 model Service {
@@ -90,6 +91,7 @@ model Booking {
   manageTokenVersion      Int           @default(0)
   manageTokenRotatedAt    DateTime?
   manageLinkSentAt        DateTime?
+  recoveryEmailSentAt     DateTime?
   refundAmount            Decimal?      @db.Decimal(10, 2)
   refundReason            String?
   refundedAt              DateTime?

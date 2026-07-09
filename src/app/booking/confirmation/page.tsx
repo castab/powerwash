@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BookingStatus, PaymentStatus } from "@/generated/prisma/browser";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
-import { getManagementUrlForBooking } from "@/lib/booking-management";
+import { getManagementUrlForBooking, getSupportEmail } from "@/lib/booking-management";
 import { formatBusinessDateLong, formatBusinessTime, formatCurrency } from "@/lib/utils";
-import { reconcileBookingConfirmationAction } from "@/server/actions/booking";
+import { ConfirmationFinalizer } from "./confirmation-finalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -44,39 +43,55 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
   }
 
   const manageUrl = getManagementUrlForBooking(booking);
+  const supportEmail = getSupportEmail() ?? null;
   const isDepositFlow = checkoutPurpose === "deposit";
   const sessionCompleted = session.status === "complete" && session.payment_status === "paid";
   const sessionExpired = session.status === "expired";
-  const isFinalizing = isDepositFlow && (booking.status === BookingStatus.PENDING_PAYMENT || !manageUrl);
+  // The hold ended without payment — every expiry path lands on this pair.
+  const depositExpired =
+    isDepositFlow &&
+    booking.status === BookingStatus.CANCELLED &&
+    booking.paymentStatus === PaymentStatus.FAILED;
+  // Payment state is still syncing (webhook not landed yet, or the manage link
+  // isn't ready). The finalizer polls until this resolves one way or the other.
+  const isFinalizing =
+    isDepositFlow &&
+    !depositExpired &&
+    (booking.status === BookingStatus.PENDING_PAYMENT || !manageUrl);
   const needsBalanceSync =
     !isDepositFlow &&
     sessionCompleted &&
     booking.paymentStatus !== PaymentStatus.PAID;
-  const canRetryReconciliation =
-    (sessionCompleted && (isFinalizing || needsBalanceSync)) ||
-    (sessionExpired &&
-      ((isDepositFlow && booking.status === BookingStatus.PENDING_PAYMENT) ||
-        (!isDepositFlow &&
-          booking.paymentStatus === PaymentStatus.PARTIALLY_PAID &&
-          booking.balanceCheckoutSessionId === session.id)));
-  const title = isFinalizing
-    ? "Payment processing"
-    : isDepositFlow
-      ? "Deposit received"
-      : needsBalanceSync
-        ? "Balance payment processing"
-      : booking.paymentStatus === PaymentStatus.PAID
-        ? "Balance payment received"
-        : "Payment received";
-  const description = isFinalizing
-    ? "Stripe completed the checkout, but your booking is still processing. Use the button below to check whether the payment has been applied yet."
-    : isDepositFlow
-      ? `Your booking is held for ${booking.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is still outstanding until service day.`
-      : needsBalanceSync
-        ? `Stripe completed the balance checkout for ${booking.firstName}, but the booking has not updated yet. Use the button below to check for the latest payment status.`
-      : booking.paymentStatus === PaymentStatus.PAID
-        ? `Stripe accepted the remaining balance for ${booking.firstName}. Your booking is now paid in full.`
-        : `Stripe accepted the payment for ${booking.firstName}. Refresh this page if the booking has not updated yet.`;
+  const balanceLinkExpired =
+    !isDepositFlow && sessionExpired && booking.paymentStatus !== PaymentStatus.PAID;
+  const showFinalizer = isFinalizing || needsBalanceSync;
+
+  const title = depositExpired
+    ? "Payment not completed"
+    : isFinalizing
+      ? "Finalizing your payment"
+      : isDepositFlow
+        ? "Deposit received"
+        : balanceLinkExpired
+          ? "Payment link expired"
+          : needsBalanceSync
+            ? "Finalizing your balance payment"
+            : booking.paymentStatus === PaymentStatus.PAID
+              ? "Balance payment received"
+              : "Payment received";
+  const description = depositExpired
+    ? "The deposit payment didn't go through in time, so the time slot has been released and no charge was made. You can pick a new time below."
+    : isFinalizing
+      ? "Stripe is confirming your payment. This page updates automatically — you don't need to do anything."
+      : isDepositFlow
+        ? `Your booking is held for ${booking.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is still outstanding until service day.`
+        : balanceLinkExpired
+          ? "This balance payment link is no longer active. Use the most recent payment email we sent, or contact us to request a new one."
+          : needsBalanceSync
+            ? `Stripe completed the balance checkout for ${booking.firstName}. This page updates automatically once the booking reflects it.`
+            : booking.paymentStatus === PaymentStatus.PAID
+              ? `Stripe accepted the remaining balance for ${booking.firstName}. Your booking is now paid in full.`
+              : `Stripe accepted the payment for ${booking.firstName}. Refresh this page if the booking has not updated yet.`;
 
   return (
     <main className="shell py-8 sm:py-12">
@@ -99,21 +114,32 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
           </div>
           <div className="soft-surface p-5">
             <p className="text-sm text-muted">Payment summary</p>
-            <p className="mt-2 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
-            <p className="mt-1 text-sm">
-              {booking.paymentStatus === PaymentStatus.PAID
-                ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
-                : `Balance outstanding: ${formatCurrency(booking.balanceDue)}`}
-            </p>
+            {depositExpired ? (
+              <p className="mt-2 text-sm">No payment was collected.</p>
+            ) : (
+              <>
+                <p className="mt-2 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
+                <p className="mt-1 text-sm">
+                  {booking.paymentStatus === PaymentStatus.PAID
+                    ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
+                    : `Balance outstanding: ${formatCurrency(booking.balanceDue)}`}
+                </p>
+              </>
+            )}
             <p className="mt-1 text-sm">Booking status: {booking.status.replaceAll("_", " ")}</p>
           </div>
         </div>
 
-        {isFinalizing ? (
+        {showFinalizer ? (
+          <ConfirmationFinalizer sessionId={sessionId} supportEmail={supportEmail} />
+        ) : depositExpired ? (
           <div className="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-            <p className="font-semibold">Manage link still syncing</p>
+            <p className="font-semibold">Your card was not charged</p>
             <p className="mt-2">
-              Refresh this page in a few seconds to reveal the booking link, or use the email once it arrives.
+              The reserved time slot has been released so someone else can book it.
+              {supportEmail
+                ? ` If you had trouble paying, or believe you were charged, contact ${supportEmail}.`
+                : " If you had trouble paying, or believe you were charged, please contact the business directly."}
             </p>
           </div>
         ) : manageUrl ? (
@@ -134,11 +160,10 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
         ) : null}
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          {canRetryReconciliation ? (
-            <form action={reconcileBookingConfirmationAction}>
-              <input name="sessionId" type="hidden" value={sessionId} />
-              <SubmitButton>Check payment status</SubmitButton>
-            </form>
+          {depositExpired ? (
+            <Link className="button-primary" href={`/book?serviceId=${booking.serviceId}`}>
+              Pick a new time
+            </Link>
           ) : null}
           <Link className="button-secondary" href="/">
             Back to home

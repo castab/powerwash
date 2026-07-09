@@ -25,6 +25,7 @@ Update these files when relevant:
 - `.env.example` for every environment variable addition, rename, removal, default change, or format change.
 - `AGENTS.md` for AI-specific conventions, commands, invariants, or workflow changes.
 - Prisma migrations and schema comments or README schema sections when database behavior changes.
+- `docs/issues/` for known-but-deferred work: numbered markdown files (`000N-slug.md`) with a Status line, verified findings, a resolution plan, and acceptance criteria, written so a future contributor or agent can pick them up cold. Check this directory for relevant open issues before starting related work, and flip an issue's Status to Resolved when a change completes it.
 
 If no documentation update is needed, say why in the final response or pull request notes.
 
@@ -36,7 +37,11 @@ If no documentation update is needed, say why in the final response or pull requ
 - Anchor all scheduling math and customer-facing time display to the business time zone helpers in `src/lib/business-time.ts`. Never parse or format appointment times with server-local `Date` semantics; the app must behave identically on a UTC host.
 - Do not treat visible availability as authoritative by itself. Booking creation must revalidate server-side.
 - Do not mark balance payment completion as service completion. Balance checkout sets payment state to paid, not booking status to completed.
-- Treat Stripe reconciliation as shared behavior between webhooks and confirmation-page fallback.
+- Treat Stripe reconciliation as shared behavior between webhooks, the confirmation page's automatic poll, and the scheduled sweeper (`src/lib/booking-sweeper.ts`, run by the Railway cron service via `npm run sweep`). All three funnel through `reconcileCheckoutSession`; do not add a fourth path that mutates payment state directly.
+- Customers never get accounts, usernames, or passwords. Magic links are the entire customer auth surface by explicit design; do not introduce customer login flows.
+- Keep Checkout restricted to instant payment methods (`payment_method_types: ["card"]` on both deposit and balance session creation). Deferred methods settle over days and break the 35-minute hold model. The webhook's `checkout.session.async_payment_failed` handler (`reconcileAsyncPaymentFailure`) exists because a failed async payment leaves the session `complete`/`unpaid` — a state the normal reconciler treats as a no-op and that never emits `checkout.session.expired`.
+- Keep the deposit recovery email single-send and correctly scoped. `ensureDepositRecoveryEmail` must only fire for `CANCELLED` + `FAILED` bookings (the `shouldSendDepositRecoveryEmail` predicate — the pair every expiry path writes and no paid cancellation does) and must claim `recoveryEmailSentAt` with a conditional `updateMany` before sending, releasing the claim on failure, exactly like the manage-link email. The reconciler's expired-deposit branch must attempt it on both the state-changing and already-cancelled paths, because lazy hold cleanup cancels holds outside the reconciler.
+- The confirmation page must not expose Stripe or the manage URL through its poll loop. `/api/booking/confirmation-status` is a DB-only read returning a state string; Stripe re-checks happen only through the debounced `pollConfirmationReconcileAction`; the manage URL renders exclusively server-side.
 - Do not log, persist, or expose raw customer manage tokens beyond the intended emailed/manage URLs.
 - Manage links are HMAC-signed tokens validated against booking token version and rotation timestamp. The pure sign/verify lives in `src/lib/manage-token.ts` (no DB/env/email); `booking-management.ts` wraps it with the booking row and `getEnv().manageLinkSecret`. Keep the secret out of the pure module (pass it in) so the token logic stays unit-testable.
 - The pure Stripe reconciliation predicates live in `src/lib/stripe-reconciliation-decisions.ts` (deposit/balance × completed/expired, plus session-metadata getters). `stripe-reconciliation.ts` owns all DB reads/writes and event creation and must call these helpers rather than re-inlining the decision logic, so the decision table stays covered by `stripe-reconciliation-decisions.test.ts`.
@@ -110,6 +115,12 @@ Build app:
 npm run build
 ```
 
+Run the booking sweeper once (also the Railway cron service's job, via `sh ./scripts/sweep.sh`):
+
+```bash
+npm run sweep
+```
+
 Start Docker Compose development stack:
 
 ```bash
@@ -134,7 +145,9 @@ Tests favor pure logic. Extract pure helpers when a payment/booking rule is wort
 - `src/lib/booking.ts`: slot lookup queries, held booking creation, expired-hold release, and overlap protection.
 - `src/lib/booking-slots.ts`: pure business-time-zone slot computation shared by slot lookup and tests.
 - `src/lib/business-time.ts`: business time zone constant, formatters, parser, and business-day helpers.
-- `src/server/actions/booking.ts`: customer booking checkout, cancellation, manage-link resend, and confirmation reconciliation actions.
+- `src/server/actions/booking.ts`: customer booking checkout, cancellation, manage-link resend, and the debounced confirmation-poll reconcile action.
+- `src/lib/booking-sweeper.ts` / `scripts/sweep-stuck-bookings.ts` / `scripts/sweep.sh`: scheduled reconciliation sweeper phases, cron entry script, and Railway cron start command.
+- `src/app/booking/confirmation/confirmation-finalizer.tsx` / `src/app/api/booking/confirmation-status/route.ts`: confirmation-page poll loop and its DB-only status endpoint.
 - `src/app/api/availability/route.ts`: public availability API.
 - `src/app/api/stripe/webhook/route.ts`: Stripe webhook entry point.
 - `src/lib/stripe-reconciliation.ts`: deposit and balance checkout reconciliation (DB reads/writes + events).

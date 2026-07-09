@@ -26,6 +26,7 @@ export type ReconciliationBooking = {
   balanceDue: { eq(value: number): boolean };
   balancePaymentIntentId: string | null;
   balancePaidAt: Date | null;
+  recoveryEmailSentAt: Date | null;
 };
 
 export function getCheckoutPurpose(session: Pick<ReconciliationSession, "metadata">) {
@@ -99,6 +100,21 @@ export function canExpirePendingDeposit(before: ReconciliationBooking) {
     before.paymentStatus !== PaymentStatus.PARTIALLY_PAID &&
     before.paymentStatus !== PaymentStatus.PAID &&
     before.paymentStatus !== PaymentStatus.REFUNDED
+  );
+}
+
+// The recovery email goes only to holds that ended CANCELLED + FAILED — the
+// combination every expiry path writes (expired-session reconciliation, lazy
+// hold cleanup, releaseHeldBooking) and no customer/admin cancellation does
+// (those end REFUNDED or keep PARTIALLY_PAID). One send per booking, claimed
+// via `recoveryEmailSentAt`.
+export function shouldSendDepositRecoveryEmail(
+  booking: Pick<ReconciliationBooking, "status" | "paymentStatus" | "recoveryEmailSentAt">,
+) {
+  return (
+    booking.status === BookingStatus.CANCELLED &&
+    booking.paymentStatus === PaymentStatus.FAILED &&
+    booking.recoveryEmailSentAt === null
   );
 }
 

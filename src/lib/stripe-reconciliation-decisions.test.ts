@@ -9,6 +9,7 @@ import {
   shouldClearExpiredBalanceRequest,
   shouldConfirmBalancePayment,
   shouldConfirmDepositPayment,
+  shouldSendDepositRecoveryEmail,
   type ReconciliationBooking,
 } from "./stripe-reconciliation-decisions.ts";
 
@@ -39,6 +40,7 @@ function makeBooking(overrides: Partial<ReconciliationBooking> = {}): Reconcilia
     balanceDue: balance(50),
     balancePaymentIntentId: null,
     balancePaidAt: null,
+    recoveryEmailSentAt: null,
     ...overrides,
   };
 }
@@ -139,6 +141,53 @@ runTest("expired deposit: only an unpaid pending hold may be cancelled", () => {
     canExpirePendingDeposit(makeBooking({ paymentStatus: PaymentStatus.REFUNDED })),
     false,
     "already refunded",
+  );
+});
+
+// --- deposit recovery email --------------------------------------------------
+
+runTest("recovery email: expired hold (CANCELLED + FAILED, unsent) qualifies", () => {
+  const expired = makeBooking({
+    status: BookingStatus.CANCELLED,
+    paymentStatus: PaymentStatus.FAILED,
+  });
+  assert.equal(shouldSendDepositRecoveryEmail(expired), true);
+});
+
+runTest("recovery email: already-sent claim blocks a second send", () => {
+  const sent = makeBooking({
+    status: BookingStatus.CANCELLED,
+    paymentStatus: PaymentStatus.FAILED,
+    recoveryEmailSentAt: new Date(),
+  });
+  assert.equal(shouldSendDepositRecoveryEmail(sent), false);
+});
+
+runTest("recovery email: cancellations that were paid never qualify", () => {
+  assert.equal(
+    shouldSendDepositRecoveryEmail(
+      makeBooking({ status: BookingStatus.CANCELLED, paymentStatus: PaymentStatus.REFUNDED }),
+    ),
+    false,
+    "customer cancellation with refund",
+  );
+  assert.equal(
+    shouldSendDepositRecoveryEmail(
+      makeBooking({ status: BookingStatus.CANCELLED, paymentStatus: PaymentStatus.PARTIALLY_PAID }),
+    ),
+    false,
+    "cancellation keeping the deposit",
+  );
+});
+
+runTest("recovery email: live bookings never qualify", () => {
+  assert.equal(shouldSendDepositRecoveryEmail(makeBooking()), false, "pending hold");
+  assert.equal(
+    shouldSendDepositRecoveryEmail(
+      makeBooking({ status: BookingStatus.CONFIRMED, paymentStatus: PaymentStatus.PARTIALLY_PAID }),
+    ),
+    false,
+    "confirmed booking",
   );
 });
 
