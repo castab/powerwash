@@ -1,5 +1,6 @@
 import { BookingEventType, BookingStatus, PaymentStatus } from "@/generated/prisma/client";
-import { ensureInitialManageBookingEmail } from "@/lib/booking-management";
+import { releaseHeldBooking } from "@/lib/booking";
+import { ensureDepositRecoveryEmail, ensureInitialManageBookingEmail } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
@@ -22,7 +23,7 @@ type CheckoutSessionWithMetadata = {
   metadata?: Record<string, string | undefined> | null;
 };
 
-export type StripeReconciliationTrigger = "stripe-webhook" | "booking-confirmation";
+export type StripeReconciliationTrigger = "stripe-webhook" | "booking-confirmation" | "sweeper";
 
 export type StripeReconciliationResult = {
   sessionId: string;
@@ -34,6 +35,7 @@ export type StripeReconciliationResult = {
   outcome:
     | "completed"
     | "expired"
+    | "async-failed"
     | "noop"
     | "missing-booking-id"
     | "booking-not-found";
@@ -50,6 +52,23 @@ async function sendInitialManageEmailBestEffort(bookingId: string) {
   } catch (error) {
     console.error(
       `[stripe-reconciliation] Failed to send initial manage-link email for booking ${bookingId}:`,
+      error,
+    );
+  }
+}
+
+// Same best-effort rationale as the manage-link email: the failed-hold recovery
+// email must never fail the webhook. A failed send releases its claim, and the
+// sweeper retries it on a later run.
+export async function sendDepositRecoveryEmailBestEffort(
+  bookingId: string,
+  actorLabel: string,
+) {
+  try {
+    await ensureDepositRecoveryEmail(bookingId, actorLabel);
+  } catch (error) {
+    console.error(
+      `[stripe-reconciliation] Failed to send deposit recovery email for booking ${bookingId}:`,
       error,
     );
   }
@@ -192,6 +211,11 @@ async function reconcileExpiredSession(
     const canExpirePendingBooking = canExpirePendingDeposit(before);
 
     if (!canExpirePendingBooking) {
+      // The hold may already be CANCELLED/FAILED (lazy hold-expiry cleanup runs
+      // outside this reconciler), so the recovery email still needs a chance to
+      // send here; its own predicate no-ops every other state.
+      await sendDepositRecoveryEmailBestEffort(bookingId, trigger);
+
       return {
         bookingId,
         reconciled: true,
@@ -217,6 +241,8 @@ async function reconcileExpiredSession(
       afterState: pickBookingEventState(updated),
     });
 
+    await sendDepositRecoveryEmailBestEffort(bookingId, trigger);
+
     return {
       bookingId,
       reconciled: true,
@@ -225,15 +251,29 @@ async function reconcileExpiredSession(
     };
   }
 
+  const stateChanged = await clearDeadBalanceSession(session, trigger, bookingId, before);
+
+  return {
+    bookingId,
+    reconciled: true,
+    stateChanged,
+    outcome: "expired" as const,
+  };
+}
+
+// Clears the stored balance checkout session on a request that can no longer be
+// paid (expired session or failed async payment) so the admin can issue a fresh
+// one. Shared by the expired and async-payment-failed paths.
+async function clearDeadBalanceSession(
+  session: CheckoutSessionWithMetadata,
+  trigger: StripeReconciliationTrigger,
+  bookingId: string,
+  before: NonNullable<Awaited<ReturnType<typeof prisma.booking.findUnique>>>,
+) {
   const version = getBalanceRequestVersion(session);
 
   if (!shouldClearExpiredBalanceRequest(before, session.id, version)) {
-    return {
-      bookingId,
-      reconciled: true,
-      stateChanged: false,
-      outcome: "expired" as const,
-    };
+    return false;
   }
 
   const updated = await prisma.booking.update({
@@ -251,12 +291,7 @@ async function reconcileExpiredSession(
     afterState: pickBookingEventState(updated),
   });
 
-  return {
-    bookingId,
-    reconciled: true,
-    stateChanged: true,
-    outcome: "expired" as const,
-  };
+  return true;
 }
 
 export async function reconcileCheckoutSession(input: {
@@ -317,5 +352,92 @@ export async function reconcileCheckoutSession(input: {
     throttled: false,
     stateChanged: false,
     outcome: "noop",
+  };
+}
+
+// A failed asynchronous payment (e.g. a bank debit that bounced days later)
+// leaves the Checkout session at status "complete" / payment_status "unpaid",
+// so `reconcileCheckoutSession` would no-op it forever and the session never
+// emits `checkout.session.expired`. This dedicated path releases the hold and
+// notifies the customer. Checkout is restricted to instant payment methods, so
+// this is a safety net rather than an expected flow.
+export async function reconcileAsyncPaymentFailure(input: {
+  sessionId: string;
+  trigger: StripeReconciliationTrigger;
+}): Promise<StripeReconciliationResult> {
+  const stripe = getStripe();
+  const session = (await stripe.checkout.sessions.retrieve(
+    input.sessionId,
+  )) as CheckoutSessionWithMetadata;
+  const bookingId = session.metadata?.bookingId ?? null;
+
+  if (!bookingId) {
+    return {
+      sessionId: input.sessionId,
+      bookingId: null,
+      trigger: input.trigger,
+      reconciled: false,
+      throttled: false,
+      stateChanged: false,
+      outcome: "missing-booking-id",
+    };
+  }
+
+  // The failure event can race a later successful state; if Stripe now reports
+  // the session paid, apply the normal completed path instead.
+  if (session.status === "complete" && session.payment_status === "paid") {
+    return reconcileCheckoutSession(input);
+  }
+
+  const before = await prisma.booking.findUnique({
+    where: { id: bookingId },
+  });
+
+  if (!before) {
+    return {
+      sessionId: input.sessionId,
+      bookingId,
+      trigger: input.trigger,
+      reconciled: false,
+      throttled: false,
+      stateChanged: false,
+      outcome: "booking-not-found",
+    };
+  }
+
+  if (getCheckoutPurpose(session) === "deposit") {
+    const canRelease =
+      before.status === BookingStatus.PENDING_PAYMENT &&
+      before.paymentStatus === PaymentStatus.PENDING;
+
+    if (canRelease) {
+      await releaseHeldBooking(bookingId, input.trigger);
+    }
+
+    // Sends when the hold ended CANCELLED/FAILED (whether released just now or
+    // earlier by lazy cleanup); no-ops for every other state.
+    await sendDepositRecoveryEmailBestEffort(bookingId, input.trigger);
+
+    return {
+      sessionId: input.sessionId,
+      bookingId,
+      trigger: input.trigger,
+      reconciled: true,
+      throttled: false,
+      stateChanged: canRelease,
+      outcome: "async-failed",
+    };
+  }
+
+  const stateChanged = await clearDeadBalanceSession(session, input.trigger, bookingId, before);
+
+  return {
+    sessionId: input.sessionId,
+    bookingId,
+    trigger: input.trigger,
+    reconciled: true,
+    throttled: false,
+    stateChanged,
+    outcome: "async-failed",
   };
 }

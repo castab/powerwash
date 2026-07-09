@@ -4,6 +4,7 @@ import { getEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { createManageToken, verifyManageToken, type ManageTokenPayload } from "@/lib/manage-token";
+import { shouldSendDepositRecoveryEmail } from "@/lib/stripe-reconciliation-decisions";
 import { formatCurrency } from "@/lib/utils";
 
 const AUTO_REFUND_WINDOW_HOURS = 24;
@@ -435,6 +436,96 @@ export async function ensureInitialManageBookingEmail(bookingId: string) {
   }
 
   return getManagementTokenForBooking(booking);
+}
+
+function buildDepositRecoveryEmail(booking: ManagedBooking) {
+  const serviceDate = formatBookingDateTime(booking.startAt);
+  const env = getEnv();
+  const bookAgainUrl = new URL("/book", env.appUrl);
+  bookAgainUrl.searchParams.set("serviceId", booking.serviceId);
+  const supportCopy = env.supportEmail
+    ? `If you had trouble paying, or believe you were charged, please reply to ${env.supportEmail} and we will sort it out.`
+    : "If you had trouble paying, or believe you were charged, please contact the business directly and we will sort it out.";
+
+  return {
+    subject: `Your ${booking.service.name} booking wasn't completed`,
+    text: [
+      `Hi ${booking.firstName},`,
+      "",
+      `Your ${booking.service.name} booking for ${serviceDate} wasn't completed because the deposit payment didn't go through in time, so the time slot has been released.`,
+      "No charge was made.",
+      "",
+      "You can pick a new time here:",
+      bookAgainUrl.toString(),
+      "",
+      supportCopy,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${booking.firstName},</p>
+        <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> wasn't completed because the deposit payment didn't go through in time, so the time slot has been released.</p>
+        <p><strong>No charge was made.</strong></p>
+        <p>You can pick a new time here:</p>
+        <p><a href="${bookAgainUrl.toString()}">${bookAgainUrl.toString()}</a></p>
+        <p>${supportCopy}</p>
+      </div>
+    `,
+  };
+}
+
+// One-shot "your booking wasn't completed" email for holds that expired without
+// payment. Uses the same atomic-claim pattern as the manage-link email: the
+// webhook, confirmation-page reconcile, and sweeper can all race here, and only
+// the caller that wins the `recoveryEmailSentAt` claim sends.
+export async function ensureDepositRecoveryEmail(bookingId: string, actorLabel = "system") {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: bookingManagementInclude,
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  if (!shouldSendDepositRecoveryEmail(booking)) {
+    return false;
+  }
+
+  const claim = await prisma.booking.updateMany({
+    where: { id: booking.id, recoveryEmailSentAt: null },
+    data: { recoveryEmailSentAt: new Date() },
+  });
+
+  if (claim.count === 0) {
+    // Another concurrent caller already claimed (or completed) the send.
+    return false;
+  }
+
+  const email = buildDepositRecoveryEmail(booking);
+
+  try {
+    await sendEmail({
+      to: booking.email,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    });
+  } catch (error) {
+    // Release the claim so the sweeper's next run can retry the send.
+    await prisma.booking.updateMany({
+      where: { id: booking.id, recoveryEmailSentAt: { not: null } },
+      data: { recoveryEmailSentAt: null },
+    });
+    throw error;
+  }
+
+  await createBookingEvent({
+    bookingId: booking.id,
+    type: BookingEventType.PAYMENT_RECOVERY_EMAIL_SENT,
+    actorLabel,
+  });
+
+  return true;
 }
 
 export function getSupportEmail() {

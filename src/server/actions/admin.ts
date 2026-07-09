@@ -588,6 +588,9 @@ export async function requestBookingBalanceAction(
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
+      // Instant methods only, matching the deposit checkout — deferred methods
+      // would leave the balance unsettled for days.
+      payment_method_types: ["card"],
       customer_email: booking.email,
       metadata: {
         bookingId: booking.id,

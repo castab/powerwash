@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
-import { reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
+import { reconcileAsyncPaymentFailure, reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
 import { getStripe } from "@/lib/stripe";
 
 export async function POST(request: Request) {
@@ -25,20 +25,21 @@ export async function POST(request: Request) {
     );
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-    await reconcileCheckoutSession({
-      sessionId: session.id,
-      trigger: "stripe-webhook",
-    });
-  }
-
-  if (event.type === "checkout.session.expired") {
-    const session = event.data.object;
-    await reconcileCheckoutSession({
-      sessionId: session.id,
-      trigger: "stripe-webhook",
-    });
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.expired":
+    case "checkout.session.async_payment_succeeded":
+      await reconcileCheckoutSession({
+        sessionId: event.data.object.id,
+        trigger: "stripe-webhook",
+      });
+      break;
+    case "checkout.session.async_payment_failed":
+      await reconcileAsyncPaymentFailure({
+        sessionId: event.data.object.id,
+        trigger: "stripe-webhook",
+      });
+      break;
   }
 
   return NextResponse.json({ received: true });
