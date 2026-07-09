@@ -1,9 +1,9 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
+import { createManageToken, verifyManageToken, type ManageTokenPayload } from "@/lib/manage-token";
 import { formatCurrency } from "@/lib/utils";
 
 const AUTO_REFUND_WINDOW_HOURS = 24;
@@ -23,12 +23,6 @@ function addMonths(date: Date, months: number) {
   return next;
 }
 
-type ManageTokenPayload = {
-  bookingId: string;
-  version: number;
-  rotatedAt: number;
-};
-
 function formatBookingDateTime(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "full",
@@ -36,52 +30,7 @@ function formatBookingDateTime(date: Date) {
   }).format(date);
 }
 
-function signPayload(encodedPayload: string) {
-  const env = getEnv();
-  return createHmac("sha256", env.manageLinkSecret).update(encodedPayload).digest("base64url");
-}
-
-function encodePayload(payload: ManageTokenPayload) {
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-}
-
-function decodePayload(encodedPayload: string) {
-  try {
-    return JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as ManageTokenPayload;
-  } catch {
-    return null;
-  }
-}
-
-function createManageToken(payload: ManageTokenPayload) {
-  const encodedPayload = encodePayload(payload);
-  const signature = signPayload(encodedPayload);
-  return `${encodedPayload}.${signature}`;
-}
-
-function verifyManageToken(token: string) {
-  const [encodedPayload, signature] = token.split(".");
-
-  if (!encodedPayload || !signature) {
-    return null;
-  }
-
-  const expectedSignature = signPayload(encodedPayload);
-  const expectedBuffer = Buffer.from(expectedSignature);
-  const actualBuffer = Buffer.from(signature);
-
-  if (expectedBuffer.length !== actualBuffer.length) {
-    return null;
-  }
-
-  if (!timingSafeEqual(expectedBuffer, actualBuffer)) {
-    return null;
-  }
-
-  return decodePayload(encodedPayload);
-}
-
-function getManagePayloadForBooking(booking: Pick<ManagedBooking, "id" | "manageTokenVersion" | "manageTokenRotatedAt">) {
+function getManagePayloadForBooking(booking: Pick<ManagedBooking, "id" | "manageTokenVersion" | "manageTokenRotatedAt">): ManageTokenPayload {
   return {
     bookingId: booking.id,
     version: booking.manageTokenVersion,
@@ -103,7 +52,7 @@ export function getManagementTokenForBooking(
     return null;
   }
 
-  return createManageToken(getManagePayloadForBooking(booking));
+  return createManageToken(getManagePayloadForBooking(booking), getEnv().manageLinkSecret);
 }
 
 export function getManagementUrlForBooking(
@@ -160,7 +109,7 @@ export function getBookingManagementMessageCode(
 }
 
 export async function getManagedBookingByToken(token: string) {
-  const payload = verifyManageToken(token);
+  const payload = verifyManageToken(token, getEnv().manageLinkSecret);
 
   if (!payload) {
     return null;
@@ -454,20 +403,36 @@ export async function ensureInitialManageBookingEmail(bookingId: string) {
     throw new Error("Unable to generate management link.");
   }
 
-  const email = buildManageEmail(booking, manageUrl);
-  await sendEmail({
-    to: booking.email,
-    subject: email.subject,
-    html: email.html,
-    text: email.text,
+  // Claim the send atomically before delivering the email. Reconciliation can run
+  // concurrently (Stripe webhook + confirmation-page fallback, or a webhook retry
+  // racing a slow first send); claiming ensures only one caller sends the email.
+  const claim = await prisma.booking.updateMany({
+    where: { id: booking.id, manageLinkSentAt: null },
+    data: { manageLinkSentAt: new Date() },
   });
 
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: {
-      manageLinkSentAt: new Date(),
-    },
-  });
+  if (claim.count === 0) {
+    // Another concurrent reconciliation already claimed (or completed) the send.
+    return getManagementTokenForBooking(booking);
+  }
+
+  const email = buildManageEmail(booking, manageUrl);
+
+  try {
+    await sendEmail({
+      to: booking.email,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    });
+  } catch (error) {
+    // Release the claim so a later attempt (resend or webhook retry) can send again.
+    await prisma.booking.updateMany({
+      where: { id: booking.id, manageLinkSentAt: { not: null } },
+      data: { manageLinkSentAt: null },
+    });
+    throw error;
+  }
 
   return getManagementTokenForBooking(booking);
 }

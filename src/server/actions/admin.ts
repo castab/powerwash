@@ -7,9 +7,11 @@ import {
   BookingEventType,
   BookingStatus,
   PaymentStatus,
+  Prisma,
   type BalanceRequestDeliveryChannel,
 } from "@/generated/prisma/client";
 import { createAdminSession, hashPassword, requireAdmin, verifyPassword } from "@/lib/auth";
+import { findOverlappingActiveBooking } from "@/lib/booking";
 import { isImmutableBookingState } from "@/lib/booking-state";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
 import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
@@ -17,6 +19,13 @@ import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events"
 import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
 import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  recordRateLimitHit,
+  resetRateLimit,
+} from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { getStripe } from "@/lib/stripe";
 import {
@@ -29,6 +38,7 @@ import {
   serviceSchema,
 } from "@/lib/validators";
 import {
+  formatBusinessDateTimeLong,
   parseBusinessDateTimeLocalValue,
   slugify,
   subtractMoney,
@@ -46,6 +56,11 @@ function canArchiveBooking(status: BookingStatus) {
 
 const EMAIL_DELIVERY_CHANNEL: BalanceRequestDeliveryChannel = "EMAIL";
 
+// Precomputed bcrypt hash (cost 12) compared against when the submitted email
+// has no matching admin, so a missing user costs the same ~100-300ms as a real
+// one and response time cannot be used to enumerate valid admin emails.
+const DUMMY_PASSWORD_HASH = "$2b$12$BZ0ORRA6XU.lHTq9VXFn9O/8ALaps28M5w5KR7ebs10lMzweAgtMC";
+
 function canIssueFullRefund(booking: { status: BookingStatus; paymentStatus: PaymentStatus }) {
   return (
     (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.COMPLETED) &&
@@ -54,6 +69,21 @@ function canIssueFullRefund(booking: { status: BookingStatus; paymentStatus: Pay
 }
 
 export type AdminPasswordUpdateState = {
+  error?: string;
+  success?: string;
+};
+
+export type BookingUpdateState = {
+  error?: string;
+  success?: string;
+};
+
+// Shared result shape for admin mutations wired through `useActionState`.
+// Expected validation and precondition failures are returned as `{ error }`
+// so they render inline in production, where Next.js redacts thrown errors.
+// Genuinely unexpected failures (DB down, Stripe 5xx) still `throw` and hit
+// the admin error boundary.
+export type AdminActionState = {
   error?: string;
   success?: string;
 };
@@ -68,18 +98,36 @@ export async function loginAdminAction(_state: { error?: string }, formData: For
     return { error: parsed.error.issues[0]?.message ?? "Invalid login." };
   }
 
+  const ip = await getClientIp();
+  const ipKey = `admin-login:ip:${ip}`;
+  const emailKey = `admin-login:email:${parsed.data.email.toLowerCase()}`;
+
+  // Reject over-limit sources before spending a bcrypt comparison so throttling
+  // stays cheap under a password-spray attack.
+  if (
+    !checkRateLimit(ipKey, RATE_LIMITS.adminLogin).ok ||
+    !checkRateLimit(emailKey, RATE_LIMITS.adminLogin).ok
+  ) {
+    return { error: "Too many login attempts. Please try again later." };
+  }
+
   const admin = await prisma.adminUser.findUnique({
     where: { email: parsed.data.email },
   });
 
-  if (!admin || !admin.isActive) {
+  // Always run one bcrypt comparison, even when the email is unknown or the
+  // account is inactive, so all failure paths take the same amount of time.
+  const passwordHash = admin?.passwordHash ?? DUMMY_PASSWORD_HASH;
+  const validPassword = await verifyPassword(parsed.data.password, passwordHash);
+
+  if (!admin || !admin.isActive || !validPassword) {
+    recordRateLimitHit(ipKey, RATE_LIMITS.adminLogin);
+    recordRateLimitHit(emailKey, RATE_LIMITS.adminLogin);
     return { error: "Invalid credentials." };
   }
 
-  const validPassword = await verifyPassword(parsed.data.password, admin.passwordHash);
-  if (!validPassword) {
-    return { error: "Invalid credentials." };
-  }
+  resetRateLimit(ipKey);
+  resetRateLimit(emailKey);
 
   await prisma.adminUser.update({
     where: { id: admin.id },
@@ -132,9 +180,14 @@ export async function updateAdminPasswordAction(
   return { success: "Password updated." };
 }
 
-export async function saveServiceAction(formData: FormData) {
+export async function saveServiceAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireAdmin();
+  const idValue = formData.get("id");
   const parsed = serviceSchema.safeParse({
-    id: formData.get("id"),
+    id: typeof idValue === "string" && idValue.length > 0 ? idValue : undefined,
     name: formData.get("name"),
     description: formData.get("description"),
     durationMinutes: formData.get("durationMinutes"),
@@ -144,14 +197,14 @@ export async function saveServiceAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid service.");
+    return { error: parsed.error.issues[0]?.message ?? "Invalid service." };
   }
 
   const basePrice = toMoneyDecimal(parsed.data.basePrice);
   const depositAmount = toMoneyDecimal(parsed.data.depositAmount);
 
   if (depositAmount.gt(basePrice)) {
-    throw new Error("Deposit cannot exceed the total price.");
+    return { error: "Deposit cannot exceed the total price." };
   }
 
   const payload = {
@@ -176,11 +229,18 @@ export async function saveServiceAction(formData: FormData) {
   revalidatePath("/admin/services");
   revalidatePath("/");
   revalidatePath("/book");
+
+  return { success: parsed.data.id ? "Service updated." : "Service created." };
 }
 
-export async function saveAvailabilityRuleAction(formData: FormData) {
+export async function saveAvailabilityRuleAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireAdmin();
+  const idValue = formData.get("id");
   const parsed = availabilitySchema.safeParse({
-    id: formData.get("id"),
+    id: typeof idValue === "string" && idValue.length > 0 ? idValue : undefined,
     dayOfWeek: formData.get("dayOfWeek"),
     startTime: formData.get("startTime"),
     endTime: formData.get("endTime"),
@@ -188,11 +248,11 @@ export async function saveAvailabilityRuleAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid availability rule.");
+    return { error: parsed.error.issues[0]?.message ?? "Invalid availability rule." };
   }
 
   if (parsed.data.startTime >= parsed.data.endTime) {
-    throw new Error("Availability end must be after start.");
+    return { error: "Availability end must be after start." };
   }
 
   if (parsed.data.id) {
@@ -218,32 +278,88 @@ export async function saveAvailabilityRuleAction(formData: FormData) {
 
   revalidatePath("/admin/availability");
   revalidatePath("/book");
+
+  return { success: parsed.data.id ? "Availability rule updated." : "Availability rule added." };
 }
 
-export async function saveBlackoutAction(formData: FormData) {
+export async function saveBlackoutAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireAdmin();
+  const idValue = formData.get("id");
   const parsed = blackoutSchema.safeParse({
+    id: typeof idValue === "string" && idValue.length > 0 ? idValue : undefined,
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     reason: formData.get("reason"),
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid blackout.");
+    return { error: parsed.error.issues[0]?.message ?? "Invalid blackout." };
   }
 
-  await prisma.blackoutDate.create({
-    data: {
-      startsAt: new Date(parsed.data.startsAt),
-      endsAt: new Date(parsed.data.endsAt),
-      reason: parsed.data.reason,
-    },
+  const data = {
+    // Datetime-local fields are Pacific wall-clock; parse in the business TZ so
+    // the stored UTC instants match slot generation (see issue 002).
+    startsAt: parseBusinessDateTimeLocalValue(parsed.data.startsAt),
+    endsAt: parseBusinessDateTimeLocalValue(parsed.data.endsAt),
+    reason: parsed.data.reason,
+  };
+
+  if (parsed.data.id) {
+    // Re-activate on edit so a corrected blackout is applied even if it had been
+    // deactivated (the list only shows active rows, but editing stays safe).
+    await prisma.blackoutDate.update({
+      where: { id: parsed.data.id },
+      data: { ...data, isActive: true },
+    });
+  } else {
+    await prisma.blackoutDate.create({ data });
+  }
+
+  revalidatePath("/admin/blackouts");
+  revalidatePath("/book");
+
+  return { success: parsed.data.id ? "Blackout updated." : "Blackout created." };
+}
+
+export async function deactivateBlackoutAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireAdmin();
+  const id = formData.get("id");
+
+  if (typeof id !== "string" || id.length === 0) {
+    return { error: "Blackout not found." };
+  }
+
+  const blackout = await prisma.blackoutDate.findUnique({ where: { id } });
+
+  if (!blackout) {
+    return { error: "Blackout not found." };
+  }
+
+  if (!blackout.isActive) {
+    return { success: "Blackout removed." };
+  }
+
+  await prisma.blackoutDate.update({
+    where: { id },
+    data: { isActive: false },
   });
 
   revalidatePath("/admin/blackouts");
   revalidatePath("/book");
+
+  return { success: "Blackout removed." };
 }
 
-export async function updateBookingAction(formData: FormData) {
+export async function updateBookingAction(
+  _state: BookingUpdateState,
+  formData: FormData,
+): Promise<BookingUpdateState> {
   const admin = await requireAdmin();
   const parsed = bookingAdminUpdateSchema.safeParse({
     bookingId: formData.get("bookingId"),
@@ -253,7 +369,7 @@ export async function updateBookingAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid booking update.");
+    return { error: parsed.error.issues[0]?.message ?? "Invalid booking update." };
   }
 
   const booking = await prisma.booking.findUnique({
@@ -262,13 +378,14 @@ export async function updateBookingAction(formData: FormData) {
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   if (isImmutableBookingState(booking)) {
-    throw new Error(
-      "Bookings in a final state cannot be updated. The customer must create a new booking if service is still needed.",
-    );
+    return {
+      error:
+        "Bookings in a final state cannot be updated. The customer must create a new booking if service is still needed.",
+    };
   }
 
   const beforeState = pickBookingEventState(booking);
@@ -291,7 +408,7 @@ export async function updateBookingAction(formData: FormData) {
     data.status = parsed.data.status;
     if (parsed.data.status === BookingStatus.CANCELLED) {
       if (booking.paymentStatus === PaymentStatus.PAID) {
-        throw new Error("Fully paid bookings must be refunded with the full refund action.");
+        return { error: "Fully paid bookings must be refunded with the full refund action." };
       }
 
       data.cancelledAt = new Date();
@@ -302,7 +419,7 @@ export async function updateBookingAction(formData: FormData) {
 
       if (booking.paymentStatus === PaymentStatus.PARTIALLY_PAID) {
         if (!booking.stripePaymentIntentId) {
-          throw new Error("Stripe payment reference is missing for this booking.");
+          return { error: "Stripe payment reference is missing for this booking." };
         }
 
         const stripe = getStripe();
@@ -334,8 +451,29 @@ export async function updateBookingAction(formData: FormData) {
   if (parsed.data.startAt) {
     const startAt = parseBusinessDateTimeLocalValue(parsed.data.startAt);
     if (startAt.getTime() !== booking.startAt.getTime()) {
+      const endAt = addMinutes(startAt, booking.service.durationMinutes);
+
+      // Honor the same overlap rules the customer flow and the
+      // booking_no_overlap exclusion constraint enforce, excluding the booking
+      // being moved. The constraint stays authoritative (see the catch below),
+      // but checking first lets us return a readable message and name the
+      // conflicting booking instead of surfacing a raw DB error.
+      const conflict = await findOverlappingActiveBooking({
+        startAt,
+        endAt,
+        excludeBookingId: booking.id,
+      });
+
+      if (conflict) {
+        return {
+          error: `That time overlaps ${conflict.firstName} ${conflict.lastName}'s ${
+            conflict.service.name
+          } booking at ${formatBusinessDateTimeLong(conflict.startAt)}. The booking was not changed.`,
+        };
+      }
+
       data.startAt = startAt;
-      data.endAt = addMinutes(startAt, booking.service.durationMinutes);
+      data.endAt = endAt;
       eventType = BookingEventType.BOOKING_RESCHEDULED;
     }
   }
@@ -348,13 +486,31 @@ export async function updateBookingAction(formData: FormData) {
   }
 
   if (!Object.keys(data).length) {
-    return;
+    return {};
   }
 
-  const updated = await prisma.booking.update({
-    where: { id: booking.id },
-    data,
-  });
+  let updated: Awaited<ReturnType<typeof prisma.booking.update>>;
+  try {
+    updated = await prisma.booking.update({
+      where: { id: booking.id },
+      data,
+    });
+  } catch (error) {
+    // Fallback for a booking that slipped into the window between the overlap
+    // check above and this update: the booking_no_overlap exclusion constraint
+    // rejects the UPDATE, and we map it to the same friendly message rather than
+    // letting a raw Prisma error reach the admin screen.
+    if (
+      eventType === BookingEventType.BOOKING_RESCHEDULED &&
+      (error instanceof Prisma.PrismaClientKnownRequestError ||
+        error instanceof Prisma.PrismaClientUnknownRequestError)
+    ) {
+      return {
+        error: "That time overlaps another booking. The booking was not changed.",
+      };
+    }
+    throw error;
+  }
 
   await createBookingEvent({
     bookingId: booking.id,
@@ -375,9 +531,14 @@ export async function updateBookingAction(formData: FormData) {
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/confirmation");
+
+  return { success: "Booking updated." };
 }
 
-export async function requestBookingBalanceAction(formData: FormData) {
+export async function requestBookingBalanceAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
   const admin = await requireAdmin();
   const parsed = requestBookingBalanceSchema.safeParse({
     bookingId: formData.get("bookingId"),
@@ -385,7 +546,7 @@ export async function requestBookingBalanceAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid balance request.");
+    return { error: parsed.error.issues[0]?.message ?? "Invalid balance request." };
   }
 
   const booking = await prisma.booking.findUnique({
@@ -394,28 +555,28 @@ export async function requestBookingBalanceAction(formData: FormData) {
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   if (booking.archivedAt) {
-    throw new Error("Archived bookings cannot request balance payments.");
+    return { error: "Archived bookings cannot request balance payments." };
   }
 
   if (booking.status !== BookingStatus.CONFIRMED) {
-    throw new Error("Only confirmed bookings can request the remaining balance.");
+    return { error: "Only confirmed bookings can request the remaining balance." };
   }
 
   if (booking.paymentStatus !== PaymentStatus.PARTIALLY_PAID) {
-    throw new Error("This booking is not awaiting a remaining balance payment.");
+    return { error: "This booking is not awaiting a remaining balance payment." };
   }
 
   if (!booking.balanceDue.gt(0)) {
-    throw new Error("This booking does not have any remaining balance due.");
+    return { error: "This booking does not have any remaining balance due." };
   }
 
   const deliveryChannel = parsed.data.deliveryChannel as BalanceRequestDeliveryChannel;
   if (deliveryChannel !== EMAIL_DELIVERY_CHANNEL) {
-    throw new Error("That delivery channel is not available yet.");
+    return { error: "That delivery channel is not available yet." };
   }
 
   const beforeState = pickBookingEventState(booking);
@@ -486,14 +647,19 @@ export async function requestBookingBalanceAction(formData: FormData) {
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/manage");
+
+  return { success: "Remaining balance request sent." };
 }
 
-export async function archiveBookingAction(formData: FormData) {
+export async function archiveBookingAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
   const admin = await requireAdmin();
   const bookingId = formData.get("bookingId");
 
   if (typeof bookingId !== "string" || bookingId.length === 0) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   const booking = await prisma.booking.findUnique({
@@ -501,15 +667,15 @@ export async function archiveBookingAction(formData: FormData) {
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   if (!canArchiveBooking(booking.status)) {
-    throw new Error("Only terminal bookings can be archived.");
+    return { error: "Only terminal bookings can be archived." };
   }
 
   if (booking.archivedAt) {
-    return;
+    return { success: "Booking archived." };
   }
 
   const archivedAt = new Date();
@@ -532,14 +698,19 @@ export async function archiveBookingAction(formData: FormData) {
   });
 
   revalidatePath("/admin/bookings");
+
+  return { success: "Booking archived." };
 }
 
-export async function unarchiveBookingAction(formData: FormData) {
+export async function unarchiveBookingAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
   const admin = await requireAdmin();
   const bookingId = formData.get("bookingId");
 
   if (typeof bookingId !== "string" || bookingId.length === 0) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   const booking = await prisma.booking.findUnique({
@@ -547,11 +718,11 @@ export async function unarchiveBookingAction(formData: FormData) {
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   if (!booking.archivedAt) {
-    return;
+    return { success: "Booking restored." };
   }
 
   const updated = await prisma.booking.update({
@@ -573,14 +744,19 @@ export async function unarchiveBookingAction(formData: FormData) {
   });
 
   revalidatePath("/admin/bookings");
+
+  return { success: "Booking restored." };
 }
 
-export async function issueBookingRefundAction(formData: FormData) {
+export async function issueBookingRefundAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
   const admin = await requireAdmin();
   const bookingId = formData.get("bookingId");
 
   if (typeof bookingId !== "string" || bookingId.length === 0) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   const booking = await prisma.booking.findUnique({
@@ -591,23 +767,23 @@ export async function issueBookingRefundAction(formData: FormData) {
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   if (booking.status !== BookingStatus.CANCELLED) {
-    throw new Error("Only canceled bookings can be refunded.");
+    return { error: "Only canceled bookings can be refunded." };
   }
 
   if (booking.paymentStatus !== PaymentStatus.PARTIALLY_PAID) {
-    throw new Error("This booking is not awaiting a refund.");
+    return { error: "This booking is not awaiting a refund." };
   }
 
   if (booking.refundReason !== "CUSTOMER_CANCELLED_INSIDE_24_HOURS") {
-    throw new Error("This booking is not eligible for an admin-issued refund.");
+    return { error: "This booking is not eligible for an admin-issued refund." };
   }
 
   if (!booking.stripePaymentIntentId) {
-    throw new Error("Stripe payment reference is missing for this booking.");
+    return { error: "Stripe payment reference is missing for this booking." };
   }
 
   const stripe = getStripe();
@@ -654,14 +830,19 @@ export async function issueBookingRefundAction(formData: FormData) {
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/manage");
+
+  return { success: "Deposit refund issued." };
 }
 
-export async function issueFullBookingRefundAction(formData: FormData) {
+export async function issueFullBookingRefundAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
   const admin = await requireAdmin();
   const bookingId = formData.get("bookingId");
 
   if (typeof bookingId !== "string" || bookingId.length === 0) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   let booking = await prisma.booking.findUnique({
@@ -672,15 +853,15 @@ export async function issueFullBookingRefundAction(formData: FormData) {
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    return { error: "Booking not found." };
   }
 
   if (!canIssueFullRefund(booking)) {
-    throw new Error("Only confirmed or completed paid bookings can be fully refunded.");
+    return { error: "Only confirmed or completed paid bookings can be fully refunded." };
   }
 
   if (!booking.stripePaymentIntentId) {
-    throw new Error("Stripe deposit payment reference is missing for this booking.");
+    return { error: "Stripe deposit payment reference is missing for this booking." };
   }
 
   const balanceRefundAmount = subtractMoney(booking.totalPrice, booking.depositAmount);
@@ -688,7 +869,7 @@ export async function issueFullBookingRefundAction(formData: FormData) {
   const balancePaymentIntentId = booking.balancePaymentIntentId;
 
   if (requiresBalanceRefund && !balancePaymentIntentId) {
-    throw new Error("Stripe balance payment reference is missing for this booking.");
+    return { error: "Stripe balance payment reference is missing for this booking." };
   }
 
   const beforeState = pickBookingEventState(booking);
@@ -787,4 +968,6 @@ export async function issueFullBookingRefundAction(formData: FormData) {
 
   revalidatePath("/admin/bookings");
   revalidatePath("/booking/manage");
+
+  return { success: "Full refund issued." };
 }

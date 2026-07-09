@@ -65,8 +65,22 @@ async function main() {
     }
   }
 
+  const DEFAULT_ADMIN_PASSWORD = "ChangeMe123!";
   const email = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
-  const password = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe123!";
+  const configuredPassword = process.env.SEED_ADMIN_PASSWORD;
+
+  // The default seed password is documented publicly, so refuse to bootstrap an
+  // admin with it in production. Require a strong SEED_ADMIN_PASSWORD instead.
+  if (
+    process.env.NODE_ENV === "production" &&
+    (!configuredPassword || configuredPassword === DEFAULT_ADMIN_PASSWORD)
+  ) {
+    throw new Error(
+      "Refusing to seed the default admin password in production. Set SEED_ADMIN_PASSWORD to a strong, unique value.",
+    );
+  }
+
+  const password = configuredPassword ?? DEFAULT_ADMIN_PASSWORD;
 
   const admin = await prisma.adminUser.findUnique({ where: { email } });
 

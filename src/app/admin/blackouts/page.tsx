@@ -1,8 +1,8 @@
-import { format } from "date-fns";
 import { prisma } from "@/lib/prisma";
+import { toBusinessDateTimeLocalValue } from "@/lib/utils";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { saveBlackoutAction } from "@/server/actions/admin";
-import { SubmitButton } from "@/components/ui/submit-button";
+import { BlackoutForm } from "@/components/admin/blackout-form";
+import { BlackoutRemoveButton } from "@/components/admin/blackout-remove-button";
 
 export const dynamic = "force-dynamic";
 
@@ -19,22 +19,26 @@ export default async function AdminBlackoutsPage() {
     >
       <section className="surface-block">
         <h2 className="text-lg font-semibold">Add blackout</h2>
-        <form action={saveBlackoutAction} className="mt-4 grid gap-4 md:grid-cols-2">
-          <input className="field" name="startsAt" type="datetime-local" />
-          <input className="field" name="endsAt" type="datetime-local" />
-          <input className="field md:col-span-2" name="reason" placeholder="Reason" />
-          <SubmitButton>Create blackout</SubmitButton>
-        </form>
+        <div className="mt-4">
+          <BlackoutForm />
+        </div>
       </section>
 
       <section className="grid gap-4">
+        {blackouts.length === 0 ? (
+          <p className="text-sm text-muted">No active blackouts.</p>
+        ) : null}
         {blackouts.map((blackout) => (
-          <div className="surface-block" key={blackout.id}>
-            <p className="text-sm font-semibold">
-              {format(blackout.startsAt, "MMM d, yyyy h:mm a")} -{" "}
-              {format(blackout.endsAt, "MMM d, yyyy h:mm a")}
-            </p>
-            <p className="mt-2 text-sm text-muted">{blackout.reason || "No reason provided."}</p>
+          <div className="surface-block grid gap-4" key={blackout.id}>
+            <BlackoutForm
+              blackout={{
+                id: blackout.id,
+                startsAt: toBusinessDateTimeLocalValue(blackout.startsAt),
+                endsAt: toBusinessDateTimeLocalValue(blackout.endsAt),
+                reason: blackout.reason ?? "",
+              }}
+            />
+            <BlackoutRemoveButton id={blackout.id} />
           </div>
         ))}
       </section>

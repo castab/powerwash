@@ -1,5 +1,5 @@
-import { addDays, format, startOfDay } from "date-fns";
 import { getPublicServices } from "@/lib/booking";
+import { addDaysToDateValue, getBusinessDateValue } from "@/lib/business-time";
 import { getDevBookingPrefill } from "@/lib/env";
 import { SiteHeader } from "@/components/layout/site-header";
 import { BookingForm } from "@/components/booking/booking-form";
@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic";
 export default async function BookPage() {
   const services = await getPublicServices();
   const devPrefill = getDevBookingPrefill();
+  const businessToday = getBusinessDateValue(new Date());
   const dateOptions = Array.from({ length: 14 }, (_, index) =>
-    format(addDays(startOfDay(new Date()), index), "yyyy-MM-dd"),
+    addDaysToDateValue(businessToday, index),
   );
   const serializedServices = services.map((service) => ({
     id: service.id,

@@ -1,4 +1,6 @@
 import { AdminShell } from "@/components/admin/admin-shell";
+import { AdminActionForm } from "@/components/admin/admin-action-form";
+import { BookingUpdateForm } from "@/components/admin/booking-update-form";
 import { getAdminBookings, type AdminBooking } from "@/lib/booking";
 import { isImmutableBookingState } from "@/lib/booking-state";
 import {
@@ -13,9 +15,7 @@ import {
   issueBookingRefundAction,
   requestBookingBalanceAction,
   unarchiveBookingAction,
-  updateBookingAction,
 } from "@/server/actions/admin";
-import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -224,28 +224,12 @@ function BookingCard({
 
         <div className="grid min-w-0 gap-3 lg:min-w-80">
           {!archived && !isImmutableBooking ? (
-            <form action={updateBookingAction} className="grid gap-3">
-              <input name="bookingId" type="hidden" value={booking.id} />
-              <input
-                className="field"
-                defaultValue={toBusinessDateTimeLocalValue(booking.startAt)}
-                name="startAt"
-                type="datetime-local"
-              />
-              <select className="field" defaultValue={booking.status} name="status">
-                <option value="CONFIRMED">Confirmed</option>
-                <option value="CANCELLED">Cancelled</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="NO_SHOW">No show</option>
-              </select>
-              <textarea
-                className="field min-h-24 resize-y"
-                defaultValue={booking.adminNotes ?? ""}
-                name="adminNotes"
-                placeholder="Admin notes"
-              />
-              <SubmitButton className="w-full justify-center">Save booking</SubmitButton>
-            </form>
+            <BookingUpdateForm
+              bookingId={booking.id}
+              defaultAdminNotes={booking.adminNotes ?? ""}
+              defaultStartAt={toBusinessDateTimeLocalValue(booking.startAt)}
+              defaultStatus={booking.status}
+            />
           ) : null}
 
           {!archived && isImmutableBooking ? (
@@ -262,8 +246,13 @@ function BookingCard({
           booking.status === "CONFIRMED" &&
           booking.paymentStatus === "PARTIALLY_PAID" &&
           booking.balanceDue.gt(0) ? (
-            <form action={requestBookingBalanceAction} className="grid gap-3">
-              <input name="bookingId" type="hidden" value={booking.id} />
+            <AdminActionForm
+              action={requestBookingBalanceAction}
+              bookingId={booking.id}
+              submitLabel={
+                booking.balanceRequestedAt ? "Resend payment request" : "Request remaining balance"
+              }
+            >
               <label className="grid gap-1 text-sm">
                 <span className="font-medium">Send payment link by</span>
                 <select
@@ -274,10 +263,7 @@ function BookingCard({
                   <option value="EMAIL">Email on file</option>
                 </select>
               </label>
-              <SubmitButton className="w-full justify-center">
-                {booking.balanceRequestedAt ? "Resend payment request" : "Request remaining balance"}
-              </SubmitButton>
-            </form>
+            </AdminActionForm>
           ) : null}
 
           {booking.status === "CANCELLED" &&
@@ -285,32 +271,36 @@ function BookingCard({
           booking.refundReason === "CUSTOMER_CANCELLED_INSIDE_24_HOURS" &&
           booking.stripePaymentIntentId &&
           !archived ? (
-            <form action={issueBookingRefundAction}>
-              <input name="bookingId" type="hidden" value={booking.id} />
-              <SubmitButton className="w-full justify-center">Issue deposit refund</SubmitButton>
-            </form>
+            <AdminActionForm
+              action={issueBookingRefundAction}
+              bookingId={booking.id}
+              submitLabel="Issue deposit refund"
+            />
           ) : null}
 
           {canIssueFullRefund ? (
-            <form action={issueFullBookingRefundAction}>
-              <input name="bookingId" type="hidden" value={booking.id} />
-              <SubmitButton className="w-full justify-center">Issue full refund</SubmitButton>
-            </form>
+            <AdminActionForm
+              action={issueFullBookingRefundAction}
+              bookingId={booking.id}
+              submitLabel="Issue full refund"
+            />
           ) : null}
 
           {!archived &&
           ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(booking.status) ? (
-            <form action={archiveBookingAction}>
-              <input name="bookingId" type="hidden" value={booking.id} />
-              <SubmitButton className="w-full justify-center">Archive booking</SubmitButton>
-            </form>
+            <AdminActionForm
+              action={archiveBookingAction}
+              bookingId={booking.id}
+              submitLabel="Archive booking"
+            />
           ) : null}
 
           {archived ? (
-            <form action={unarchiveBookingAction}>
-              <input name="bookingId" type="hidden" value={booking.id} />
-              <SubmitButton className="w-full justify-center">Restore booking</SubmitButton>
-            </form>
+            <AdminActionForm
+              action={unarchiveBookingAction}
+              bookingId={booking.id}
+              submitLabel="Restore booking"
+            />
           ) : null}
         </div>
       </div>

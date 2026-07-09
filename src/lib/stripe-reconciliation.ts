@@ -3,6 +3,16 @@ import { ensureInitialManageBookingEmail } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
+import {
+  canExpirePendingDeposit,
+  getBalanceRequestVersion,
+  getCheckoutPurpose,
+  getPaymentIntentId,
+  isActiveBalanceRequest,
+  shouldClearExpiredBalanceRequest,
+  shouldConfirmBalancePayment,
+  shouldConfirmDepositPayment,
+} from "@/lib/stripe-reconciliation-decisions";
 
 type CheckoutSessionWithMetadata = {
   id: string;
@@ -29,22 +39,20 @@ export type StripeReconciliationResult = {
     | "booking-not-found";
 };
 
-function getCheckoutPurpose(session: { metadata?: Record<string, string | undefined> | null }) {
-  return session.metadata?.checkoutPurpose === "balance" ? "balance" : "deposit";
-}
-
-function getBalanceRequestVersion(session: { metadata?: Record<string, string | undefined> | null }) {
-  const raw = session.metadata?.balanceRequestVersion;
-  const version = raw ? Number(raw) : NaN;
-  return Number.isInteger(version) ? version : null;
-}
-
-function getPaymentIntentId(session: CheckoutSessionWithMetadata) {
-  if (typeof session.payment_intent === "string") {
-    return session.payment_intent;
+// The manage-link email is a best-effort side effect of reconciliation. Payment
+// state is already persisted before this runs, so an email failure (missing Resend
+// key, rate limit, 5xx) must not fail the webhook — otherwise Stripe retries for
+// days and every retry re-attempts the email. A lost email is recoverable: the
+// confirmation page shows the manage link and the customer can trigger a resend.
+async function sendInitialManageEmailBestEffort(bookingId: string) {
+  try {
+    await ensureInitialManageBookingEmail(bookingId);
+  } catch (error) {
+    console.error(
+      `[stripe-reconciliation] Failed to send initial manage-link email for booking ${bookingId}:`,
+      error,
+    );
   }
-
-  return session.payment_intent?.id ?? null;
 }
 
 async function reconcileCompletedSession(
@@ -69,15 +77,10 @@ async function reconcileCompletedSession(
   const paymentIntentId = getPaymentIntentId(session);
 
   if (checkoutPurpose === "deposit") {
-    const shouldUpdate =
-      before.status !== BookingStatus.CONFIRMED ||
-      before.paymentStatus !== PaymentStatus.PARTIALLY_PAID ||
-      before.stripeCheckoutSessionId !== session.id ||
-      before.stripePaymentIntentId !== paymentIntentId ||
-      before.confirmedAt === null;
+    const shouldUpdate = shouldConfirmDepositPayment(before, session.id, paymentIntentId);
 
     if (!shouldUpdate) {
-      await ensureInitialManageBookingEmail(bookingId);
+      await sendInitialManageEmailBestEffort(bookingId);
 
       return {
         bookingId,
@@ -106,7 +109,7 @@ async function reconcileCompletedSession(
       afterState: pickBookingEventState(updated),
     });
 
-    await ensureInitialManageBookingEmail(bookingId);
+    await sendInitialManageEmailBestEffort(bookingId);
 
     return {
       bookingId,
@@ -117,11 +120,7 @@ async function reconcileCompletedSession(
   }
 
   const version = getBalanceRequestVersion(session);
-  const isActiveRequest =
-    version !== null &&
-    before.balanceRequestVersion === version &&
-    before.balanceCheckoutSessionId === session.id &&
-    before.paymentStatus === PaymentStatus.PARTIALLY_PAID;
+  const isActiveRequest = isActiveBalanceRequest(before, session.id, version);
 
   if (!isActiveRequest) {
     return {
@@ -132,11 +131,7 @@ async function reconcileCompletedSession(
     };
   }
 
-  const shouldUpdate =
-    before.paymentStatus !== PaymentStatus.PAID ||
-    !before.balanceDue.eq(0) ||
-    before.balancePaymentIntentId !== paymentIntentId ||
-    before.balancePaidAt === null;
+  const shouldUpdate = shouldConfirmBalancePayment(before, paymentIntentId);
 
   if (!shouldUpdate) {
     return {
@@ -194,11 +189,7 @@ async function reconcileExpiredSession(
   const checkoutPurpose = getCheckoutPurpose(session);
 
   if (checkoutPurpose === "deposit") {
-    const canExpirePendingBooking =
-      before.status === BookingStatus.PENDING_PAYMENT &&
-      before.paymentStatus !== PaymentStatus.PARTIALLY_PAID &&
-      before.paymentStatus !== PaymentStatus.PAID &&
-      before.paymentStatus !== PaymentStatus.REFUNDED;
+    const canExpirePendingBooking = canExpirePendingDeposit(before);
 
     if (!canExpirePendingBooking) {
       return {
@@ -235,13 +226,8 @@ async function reconcileExpiredSession(
   }
 
   const version = getBalanceRequestVersion(session);
-  const isActiveRequest =
-    version !== null &&
-    before.balanceRequestVersion === version &&
-    before.balanceCheckoutSessionId === session.id &&
-    before.paymentStatus === PaymentStatus.PARTIALLY_PAID;
 
-  if (!isActiveRequest || before.balanceCheckoutSessionId === null) {
+  if (!shouldClearExpiredBalanceRequest(before, session.id, version)) {
     return {
       bookingId,
       reconciled: true,

@@ -20,6 +20,36 @@ function readEnv(key: string, fallback = "") {
   return fallback;
 }
 
+const MIN_SECRET_LENGTH = 32;
+
+function readSecretEnv(key: string, devFallback: string) {
+  const value = process.env[key];
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (!value || value.length === 0) {
+    if (isProduction) {
+      throw new Error(`Missing required environment variable in production: ${key}`);
+    }
+
+    warnOnce(key);
+    return devFallback;
+  }
+
+  if (isProduction) {
+    if (value.startsWith("change-me") || value.startsWith("replace-with")) {
+      throw new Error(`Environment variable ${key} is still set to a placeholder value in production.`);
+    }
+
+    if (value.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        `Environment variable ${key} must be at least ${MIN_SECRET_LENGTH} characters in production.`,
+      );
+    }
+  }
+
+  return value;
+}
+
 function readOptionalPositiveIntEnv(key: string, fallback: number) {
   const value = process.env[key];
 
@@ -49,8 +79,8 @@ export function getEnv() {
     appUrl: readEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000"),
     stripeSecretKey: readEnv("STRIPE_SECRET_KEY"),
     stripeWebhookSecret: readEnv("STRIPE_WEBHOOK_SECRET"),
-    adminSessionSecret: readEnv("ADMIN_SESSION_SECRET", "change-me"),
-    manageLinkSecret: readEnv("MANAGE_LINK_SECRET", "change-me-manage-link"),
+    adminSessionSecret: readSecretEnv("ADMIN_SESSION_SECRET", "change-me"),
+    manageLinkSecret: readSecretEnv("MANAGE_LINK_SECRET", "change-me-manage-link"),
     resendApiKey: readEnv("RESEND_API_KEY"),
     confirmationReconcileDebounceMs: readOptionalPositiveIntEnv(
       "CONFIRMATION_RECONCILE_DEBOUNCE_MS",

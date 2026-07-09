@@ -16,11 +16,31 @@ require_env() {
   fi
 }
 
+require_secret() {
+  var_name="$1"
+  eval "var_value=\${$var_name:-}"
+
+  require_env "$var_name"
+
+  case "$var_value" in
+    change-me*|replace-with*)
+      echo "[railway-start] $var_name is still set to a placeholder value" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "${#var_value}" -lt 32 ]; then
+    echo "[railway-start] $var_name must be at least 32 characters" >&2
+    exit 1
+  fi
+}
+
 log "Validating environment"
 require_env DATABASE_URL
 require_env DIRECT_URL
 require_env NEXT_PUBLIC_APP_URL
-require_env ADMIN_SESSION_SECRET
+require_secret ADMIN_SESSION_SECRET
+require_secret MANAGE_LINK_SECRET
 require_env STRIPE_SECRET_KEY
 require_env STRIPE_WEBHOOK_SECRET
 require_env RESEND_API_KEY
