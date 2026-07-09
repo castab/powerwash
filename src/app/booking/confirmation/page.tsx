@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { format } from "date-fns";
 import { BookingStatus, PaymentStatus } from "@/generated/prisma/browser";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { getManagementUrlForBooking } from "@/lib/booking-management";
-import { formatCurrency } from "@/lib/utils";
+import { formatBusinessDateLong, formatBusinessTime, formatCurrency } from "@/lib/utils";
 import { reconcileBookingConfirmationAction } from "@/server/actions/booking";
 
 export const dynamic = "force-dynamic";
@@ -91,7 +90,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
             <p className="text-sm text-muted">Service</p>
             <p className="mt-2 text-lg font-semibold">{booking.service.name}</p>
             <p className="mt-1 text-sm text-muted">
-              {format(booking.startAt, "EEEE, MMMM d")} at {format(booking.startAt, "h:mm a")}
+              {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
             </p>
             <p className="mt-1 text-sm text-muted">
               Vehicle: {booking.vehicleYear ? `${booking.vehicleYear} ` : ""}

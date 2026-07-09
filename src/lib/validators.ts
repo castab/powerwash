@@ -80,6 +80,7 @@ export const availabilitySchema = z.object({
 
 export const blackoutSchema = z
   .object({
+    id: z.string().optional(),
     startsAt: z.string().min(1),
     endsAt: z.string().min(1),
     reason: z.string().max(200).optional(),

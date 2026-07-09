@@ -11,6 +11,7 @@ Production-oriented, mobile-first car wash booking application built with Next.j
 - Secure customer booking management links sent by email.
 - Customer cancellation flow with automatic deposit refund when cancellation is at least 24 hours before the appointment.
 - Admin dashboard for services, weekly availability, blackout dates, bookings, balance requests, archival, eligible manual refunds, and admin password updates.
+- In-memory rate limiting on admin login and public endpoints, with constant-time admin login to prevent email enumeration.
 - Database-level overlap protection using a PostgreSQL exclusion constraint.
 - Business-logic overlap validation using serializable transactions.
 - Booking event audit trail for payments, admin actions, cancellations, manage links, archival, and balance requests.
@@ -77,12 +78,23 @@ Admin screens should share the same visual language as the rest of the applicati
 - `src/components/booking/booking-form.tsx`: booking UI, slot fetch behavior, and dev prefill integration.
 - `src/app/api/availability/route.ts`: public slot lookup endpoint.
 - `src/server/actions/booking.ts`: booking checkout action, customer cancellation, manage-link resend, and confirmation reconciliation action.
-- `src/lib/booking.ts`: slot computation, held booking creation, and overlap checks.
-- `src/lib/booking-management.ts`: signed manage-link generation/rotation, customer booking lookup, cancellation messages, and customer email helpers.
+- `src/lib/booking.ts`: slot lookup queries, held booking creation, expired-hold release, and overlap checks.
+- `src/lib/booking-slots.ts`: pure slot computation anchored to the business time zone.
+- `src/lib/business-time.ts`: business time zone formatting, parsing, and business-day helpers.
+- `src/lib/booking-management.ts`: manage-link generation/rotation, customer booking lookup, cancellation messages, and customer email helpers.
+- `src/lib/manage-token.ts`: pure HMAC sign/verify for customer manage-link tokens (no DB/env/email), wrapped by `booking-management.ts` with the booking row and `MANAGE_LINK_SECRET`; unit-tested directly.
 - `src/lib/stripe-reconciliation.ts`: Stripe Checkout session reconciliation for deposits and balance payments.
+- `src/lib/stripe-reconciliation-decisions.ts`: pure decision helpers (deposit/balance × completed/expired predicates) extracted from the reconciler for decision-table unit tests; the reconciler owns the DB reads/writes and events.
 - `src/lib/balance-payment.ts`: admin-requested remaining balance email delivery.
-- `src/server/actions/admin.ts`: admin login, service/availability/blackout CRUD, booking updates, balance requests, archive actions, and manual refund action.
+- `src/server/actions/admin.ts`: admin login, service/availability/blackout CRUD, booking updates (with reschedule overlap validation), balance requests, archive actions, and manual refund action. Mutations return a shared `AdminActionState` (`{ error?, success? }`) for expected outcomes and reserve `throw` for unexpected failures.
+- `src/components/admin/booking-update-form.tsx`: admin booking status/reschedule/notes form that surfaces update validation errors inline.
+- `src/components/admin/service-form.tsx`, `availability-rule-form.tsx`, `blackout-form.tsx`: client forms that wire their admin actions through `useActionState` and render returned validation errors/success inline. `blackout-form.tsx` doubles as the create and edit form; `blackout-remove-button.tsx` posts the per-row deactivate action.
+- `scripts/run-tests.mjs` / `scripts/test-resolve-hook.mjs`: the `npm test` runner (discovers all `src/**/*.test.ts`) and its Node resolve hook for the `@/*` alias and extensionless imports.
+- `src/components/admin/admin-action-form.tsx`: generic client wrapper for the booking-card button actions (balance request, archive/restore, refunds) that renders their `AdminActionState` result inline; `action-messages.tsx` renders the shared red/green banner.
+- `src/app/admin/error.tsx`: error boundary for the `/admin` segment that catches unexpected failures and keeps a styled admin shell.
 - `src/lib/auth.ts`: admin cookie creation and admin validation.
+- `src/lib/rate-limit.ts`: in-memory fixed-window rate limiter and shared limit presets.
+- `src/lib/request-ip.ts`: best-effort client IP resolution for rate limiting.
 - `src/lib/env.ts`: runtime environment variable reads and local dev booking prefill parsing.
 - `src/generated/prisma/`: generated Prisma v7 client output. This directory is generated and ignored by Git.
 - `prisma.config.ts`: Prisma CLI configuration, including schema path, migration path, seed command, and database URLs.
@@ -101,8 +113,8 @@ Admin screens should share the same visual language as the rest of the applicati
 3. The booking form calls `/api/availability?serviceId=...&date=...` to retrieve available slots.
 4. The customer submits the booking form to `createBookingCheckoutAction`.
 5. The server validates input with `bookingSchema`.
-6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 30 minutes in the future.
-7. The server creates a Stripe Checkout session for the deposit and redirects the customer to Stripe.
+6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 35 minutes in the future.
+7. The server creates a Stripe Checkout session for the deposit with `expires_at` matched to the hold expiry and redirects the customer to Stripe. If session creation fails, the held booking is released immediately so the slot is not blocked by an orphaned hold.
 8. Stripe sends a webhook for `checkout.session.completed` or `checkout.session.expired`.
 9. The customer returns to `/booking/confirmation?session_id=...`, which can retry reconciliation if the webhook has not completed yet.
 
@@ -112,20 +124,25 @@ Admin screens should share the same visual language as the rest of the applicati
 - Deposit, total price, and remaining balance are saved immediately on the booking.
 - Deposit checkout completion promotes the booking to `CONFIRMED` and `PARTIALLY_PAID`.
 - Expired deposit checkout marks the held booking `CANCELLED` and `FAILED` if it is still pending.
+- The deposit Checkout session expires together with the 35-minute hold, so an abandoned checkout releases its slot within the hold window and a session can never be paid after its hold has lapsed.
+- As a backstop, `createHeldBooking` lazily cancels any overlapping `PENDING_PAYMENT` hold whose `paymentExpiresAt` has passed before inserting a new hold, so an orphaned hold can never block a real customer.
 - Remaining balance collection is initiated by an admin from the bookings dashboard.
 - Balance checkout completion marks `paymentStatus` as `PAID`, zeros `balanceDue`, and records the balance payment intent.
 - Balance payment does not automatically mark the service `COMPLETED`.
 - Admin cancellation of a deposit-paid booking refunds the deposit, marks the booking `CANCELLED` and `REFUNDED`, and sends an administrative cancellation email.
 - Admin full refunds are available for `CONFIRMED` or `COMPLETED` bookings with `PAID` payment state and recorded Stripe payment intents. They refund both the deposit and balance payment, then mark payment `REFUNDED`; confirmed bookings are also cancelled, while completed bookings keep their service status.
-- Stripe webhook reconciliation and confirmation-page reconciliation share `src/lib/stripe-reconciliation.ts`.
+- Stripe webhook reconciliation and confirmation-page reconciliation share `src/lib/stripe-reconciliation.ts`. The manage-link email these triggers send is best-effort: an email failure is logged but does not fail reconciliation, so the webhook still returns 200 and Stripe does not enter a retry/re-send loop.
 
 ### Scheduling Rules
 
-- `AvailabilityRule` stores recurring weekly windows by day of week and local start/end time.
+- All scheduling math and customer-facing time display are anchored to the business time zone (`America/Los_Angeles`, defined in `src/lib/business-time.ts`), independent of the server's local time zone. Availability rule times, blackout inputs, slot labels, and day boundaries are all interpreted as business-local wall-clock time.
+- `AvailabilityRule` stores recurring weekly windows by day of week and business-local start/end time.
 - `BlackoutDate` stores one-off blocked ranges.
 - `Booking` stores appointment `startAt` and `endAt` ranges.
 - Available slots are generated in 15-minute increments.
 - Slots starting less than 60 minutes from the current time are filtered out.
+- Slot starts are de-duplicated and returned in chronological order, so two overlapping availability rules on the same weekday never emit a duplicate option.
+- The day's conflicting bookings are fetched by range overlap (`startAt < dayEnd AND endAt > dayStart`), so a booking that starts the previous day and runs past midnight still masks the slots it occupies.
 - Active conflicts include `CONFIRMED`, `COMPLETED`, `NO_SHOW`, and unexpired `PENDING_PAYMENT` bookings.
 - Blackout windows block overlapping slots.
 - The current implementation assumes a single service bay.
@@ -134,19 +151,36 @@ Admin screens should share the same visual language as the rest of the applicati
 
 - `getAvailableSlots` filters visible slot choices.
 - `ensureBookableSlot` rechecks the selected slot before insertion.
-- `createHeldBooking` uses a serializable transaction and rechecks overlap before insert.
-- The database has a PostgreSQL exclusion constraint to block overlapping active booking ranges.
+- `createHeldBooking` uses a serializable transaction, releases any overlapping expired `PENDING_PAYMENT` holds, and rechecks overlap before insert.
+- Admin reschedules run the shared `findOverlappingActiveBooking` check (same active-conflict definition as booking creation, excluding the booking being moved) before applying the new time, and fall back to the exclusion constraint if a conflict is created concurrently.
+- The database has a PostgreSQL exclusion constraint to block overlapping active booking ranges, including all `PENDING_PAYMENT` rows.
+- Hold, Stripe session, and database lifetimes are aligned: the deposit Checkout session carries `expires_at` equal to the 35-minute `paymentExpiresAt`, expiry webhooks release the row via reconciliation, and lazy cleanup during new booking creation covers holds whose expiry webhook never arrived.
 - Prisma database errors during booking creation are normalized to a user-friendly “window was just taken” message.
 
 ### Admin Flow
 
 - Admins log in at `/admin/login`.
 - Login verifies bcrypt password hashes and writes a signed HTTP-only cookie.
-- `middleware.ts` blocks `/admin/*` routes when the cookie is absent.
-- Server actions call `requireAdmin()` where authenticated admin identity is required.
+- Login is rate limited per IP and per email (5 failures per 15 minutes). Over-limit sources are rejected before any bcrypt comparison with a generic "Too many login attempts" message; a successful login clears the counters.
+- Login is constant-time across failure paths: an unknown email, an inactive account, and a wrong password all run exactly one bcrypt comparison (against a fixed dummy hash when the email has no admin), so response timing cannot be used to enumerate valid admin emails.
+- `middleware.ts` blocks `/admin/*` routes when the session cookie is absent. This is a cheap presence check only — Edge middleware cannot reach the database, so it is not authentication. Real verification (signature + admin lookup) happens in `requireAdmin()`, which admin pages enter via `AdminShell`.
+- Every mutating admin server action begins with `requireAdmin()`; the middleware cookie check only gates page navigation and is not the authorization boundary for actions. Admin route handlers that do more than clear cookies (unlike `/admin/logout/route.ts`) are not covered by `AdminShell` and must call `requireAdmin()` themselves.
 - Admins can manage services, weekly availability, blackout windows, booking status/reschedule notes, balance requests, archive state, eligible late-cancellation refunds, and their own password from `/admin/settings`.
+- Blackouts can be created, edited, and removed from `/admin/blackouts`. Each active blackout renders an inline edit form (mirroring the availability-rules page) plus a Remove button that posts to `deactivateBlackoutAction` and sets `isActive: false`. Removing or correcting a mistaken blackout frees its slots in `/api/availability` without hand-editing the database; deactivated blackouts drop off the list. Blackout datetime fields are parsed in the business time zone, and editing re-activates the row.
+- Admin reschedules are validated for overlap before the update. A new time that collides with another active booking (confirmed, completed, no-show, or an unexpired hold) is rejected with a readable message naming the conflicting booking, and the booking is left unchanged. The `booking_no_overlap` exclusion constraint remains authoritative: a concurrent booking that slips into the window is caught as a fallback and mapped to the same friendly message, so no raw database error reaches the admin screen. The admin bookings reschedule form surfaces this error (and a success confirmation) inline via the shared `useActionState` result pattern.
 - Bookings in final states are locked from further booking status, schedule, and admin note updates. This includes canceled bookings after refund or failed deposit capture, completed paid or refunded bookings, and no-shows.
+- The active bookings dashboard keeps a booking visible until it is both terminal and payment-settled, regardless of its appointment date. Upcoming bookings, past bookings still marked `CONFIRMED`, any booking with a `PARTIALLY_PAID` balance (outstanding balance or pending refund decision), and completed paid bookings inside the refund window all remain listed so admins can mark completion, request the remaining balance, or issue refunds after the appointment date has passed. A booking only leaves the active list when it reaches a terminal, settled state or is archived.
 - Admin password updates require the current password, a new password, and confirmation of the new password before replacing the stored bcrypt hash.
+- Admin mutations surface expected outcomes inline instead of crashing to a generic error page. Service, availability, blackout, balance-request, archive/restore, and refund actions return a `{ error?, success? }` result (`AdminActionState`) that their forms render as a red/green banner via `useActionState`, so validation and precondition messages (for example "Deposit cannot exceed the total price" or "Only canceled bookings can be refunded") stay visible in production builds, where Next.js redacts thrown server-action errors. Only genuinely unexpected failures (database outage, Stripe not returning a payment link) still throw.
+- The `/admin` segment has its own error boundary (`src/app/admin/error.tsx`). Unexpected failures render a styled, token-driven page with a "Try again" retry and a link back to the bookings dashboard instead of the default full-page crash, and the admin session stays intact.
+
+### Rate Limiting And Abuse Protection
+
+- `src/lib/rate-limit.ts` provides an in-memory fixed-window limiter with shared bounds in `RATE_LIMITS`. Client IP is resolved by `src/lib/request-ip.ts` from the first `x-forwarded-for` entry, falling back to `x-real-ip`.
+- Admin login: 5 failed attempts per 15 minutes, tracked per IP and per email. The limiter is checked before the bcrypt comparison, so throttling stays cheap under a password-spray attack.
+- Public availability endpoint (`/api/availability`): 60 requests per minute per IP. Over-limit requests return HTTP `429` with a `Retry-After` header. The limit is generous enough that the booking form's date/service slot lookups are unaffected in normal use.
+- Booking checkout (`createBookingCheckoutAction`): 10 attempts per 10 minutes per IP, checked before a hold and Stripe Checkout session are created, because that is the expensive public path.
+- Limiter state is in-process only, so limits are per-instance and reset on restart. This is acceptable for the single-instance Railway deployment. On multi-instance or serverless hosting, treat these limits as best-effort abuse protection rather than a globally coordinated guarantee, and consider a shared store (e.g. Redis) if stronger guarantees are needed.
 
 ### Manage Links
 
@@ -156,6 +190,8 @@ Admin screens should share the same visual language as the rest of the applicati
 - Signature uses `MANAGE_LINK_SECRET`.
 - Rotation is enforced by comparing token payload values to the current booking version and rotation timestamp.
 - Initial manage-link email is sent once after deposit confirmation.
+- The initial manage-link email is a best-effort side effect of reconciliation. Payment state is committed before the email is attempted, so a Resend failure is logged with the booking id but does not fail the Stripe webhook or the confirmation-page reconcile action. The customer can still reach the manage link from the confirmation page and can trigger a resend.
+- Delivery of the initial email is claimed atomically (`manageLinkSentAt` is set with a conditional `updateMany` before sending), so concurrent reconciliation triggers or webhook retries deliver at most one manage-link email. A failed send releases the claim so a later attempt can retry.
 - Resending a manage link rotates the token and invalidates previous links.
 - Archived bookings remain customer-accessible until `customerAccessEndsAt`; current code sets this to 18 months after archival.
 
@@ -167,7 +203,7 @@ Admin screens should share the same visual language as the rest of the applicati
 - Admin cancellation of deposit-paid bookings refunds the deposit regardless of the customer cancellation window and sends an email noting the booking was administratively canceled.
 - Admins can issue eligible late-cancellation deposit refunds from the dashboard.
 - Admins can issue full refunds for confirmed or completed paid bookings when both Stripe payment references needed for the paid amounts are present.
-- Paid confirmed or completed bookings remain visible in the admin bookings dashboard for refund handling even when their appointment date is in the past.
+- Unresolved bookings remain visible in the admin bookings dashboard even when their appointment date is in the past. This includes paid confirmed or completed bookings inside the refund window, past confirmed bookings still awaiting a completion/no-show decision, partially paid bookings with a balance still due, and canceled partially paid bookings awaiting a late-cancellation refund decision. Such a booking drops off the active list only once it becomes terminal and payment-settled, or is archived.
 - Final booking states are no longer editable from the admin dashboard. This includes canceled bookings after refund or failed deposit capture, completed paid or refunded bookings, and no-shows.
 - Terminal bookings such as `COMPLETED` and `NO_SHOW` cannot be canceled online.
 - Fully paid bookings are treated as not cancellable through the customer manage flow.
@@ -188,7 +224,7 @@ Important database protections:
 - PostgreSQL enums for booking, payment, balance request delivery, and event status values.
 - Indexes for schedule, admin, archive, and event queries.
 - `booking_valid_range` check constraint.
-- `booking_no_overlap` exclusion constraint using `tstzrange`.
+- `booking_no_overlap` exclusion constraint using `tsrange("startAt", "endAt")` over the `TIMESTAMP(3)` columns. All appointment times are stored in UTC, so a zone-less range is correct here; do not "fix" it to `tstzrange` without also changing the column types.
 
 When schema, migrations, seed data, or model semantics change, update this README, `.env.example` if relevant, and `AGENTS.md` if AI guidance changes.
 
@@ -242,6 +278,8 @@ Default seed admin credentials, unless overridden by environment variables:
 
 - Email: `admin@example.com`
 - Password: `ChangeMe123!`
+
+These defaults are for local development only. When `NODE_ENV=production`, the seed script refuses to run unless `SEED_ADMIN_PASSWORD` is set to a non-default value, so a public deployment cannot bootstrap the admin account with the documented seed password.
 
 For production-like migration application, use:
 
@@ -357,13 +395,13 @@ Copy `.env.example` to `.env` for local development. Update `.env.example` whene
 | `NEXT_PUBLIC_APP_URL` | Yes | Canonical public base URL used for emailed links and as a fallback when request origin cannot be inferred. Stripe checkout redirects use the current request origin when available. |
 | `STRIPE_SECRET_KEY` | Yes for payments | Stripe secret API key. |
 | `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook`. |
-| `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies. Use a strong value outside local development. |
-| `MANAGE_LINK_SECRET` | Yes | Secret used to sign customer booking management links. Use a strong value outside local development. |
+| `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies. Must be at least 32 characters and not a placeholder value; production boots/builds fail closed when it is missing, short, or still a `change-me*`/`replace-with*` value. Local development falls back to an insecure default with a warning. |
+| `MANAGE_LINK_SECRET` | Yes | Secret used to sign customer booking management links. Same strength and fail-closed production rules as `ADMIN_SESSION_SECRET`, and validated by both deploy scripts. |
 | `RESEND_API_KEY` | Yes for email | Resend API key for transactional emails. |
 | `EMAIL_FROM` | Yes for email | Sender used for customer booking emails. |
 | `SUPPORT_EMAIL` | Yes in deploy scripts | Contact address included in booking emails. |
 | `SEED_ADMIN_EMAIL` | Optional | Seed admin login email. Defaults to `admin@example.com`. |
-| `SEED_ADMIN_PASSWORD` | Optional | Seed admin login password. Defaults to `ChangeMe123!`. |
+| `SEED_ADMIN_PASSWORD` | Required in production seed | Seed admin login password. Defaults to `ChangeMe123!` in local development. In production the seed script throws when this is unset or still the default, so a public deploy cannot bootstrap the admin with the documented password. |
 | `CONFIRMATION_RECONCILE_DEBOUNCE_MS` | Optional | Debounce window for confirmation-page Stripe reconciliation. Defaults to `30000`. |
 | `CONFIRMATION_RECONCILE_MAP_MAX_SIZE` | Optional | Max in-memory confirmation reconciliation cache size. Defaults to `1000`. |
 | `NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED` | Local only | Shows a dev-only `Use sample data` button on `/book` when set to `true`. |
@@ -399,8 +437,9 @@ npm run build
 
 Notes:
 
-- `npm test` currently runs `src/lib/booking-prefill.test.ts`.
-- `src/lib/utils.test.ts` is present but is not currently included in the package `test` script.
+- `npm test` runs `scripts/run-tests.mjs`, which discovers and runs **every** `src/**/*.test.ts` file in its own `node --experimental-strip-types` child process and fails if any file fails. `scripts/test-resolve-hook.mjs` teaches Node the `@/*` path alias and extensionless imports so tests can import app modules without a bundler.
+- Current coverage: slot generation and business-time/day math (`booking-slots.test.ts`), money and timezone/DST helpers (`utils.test.ts`), rate limiting (`rate-limit.test.ts`), dev booking prefill (`booking-prefill.test.ts`), manage-link token sign/verify/tamper/rotation (`manage-token.test.ts`), Stripe reconciliation decision table for deposit/balance × completed/expired × already-reconciled/stale-version/wrong-session (`stripe-reconciliation-decisions.test.ts`), immutable-booking-state rules (`booking-state.test.ts`), and the service/availability admin-form schemas' create-vs-edit `id` handling (`validators.test.ts`).
+- Pure logic is favored for tests. DB-dependent paths (the `createHeldBooking` race, exclusion-constraint rejection, and reconciliation's persistence/events) are still only exercised against a real Postgres and remain a follow-up for an integration harness.
 - Prisma client generation runs after install through `postinstall`, and can also be run manually with `npm run prisma:generate`.
 - Prisma v7 does not auto-run seed during migration commands; run `npm run prisma:seed` explicitly when seed data is needed.
 
@@ -458,6 +497,8 @@ Every Railway container start performs this sequence:
 6. Start the app with `node .next/standalone/server.js`.
 
 This means migrations run on every app start, bootstrap seed runs only once for an empty database, and later restarts skip seeding automatically. Because `next.config.ts` uses `output: "standalone"`, production starts the generated standalone server directly rather than `next start`.
+
+Because the bootstrap seed can run against a fresh production database, set `SEED_ADMIN_PASSWORD` to a strong, unique value before the first deploy. The seed script throws in production when it is unset or still the default `ChangeMe123!`, which fails the container start rather than creating an admin with the publicly documented password.
 
 Railway setup:
 
@@ -521,4 +562,5 @@ Notes:
 - The current implementation assumes a single service bay. If the business later needs multiple simultaneous bays, add a resource dimension to `Booking` and the exclusion constraint.
 - PWA support is intentionally minimal to keep the core booking flow prioritized.
 - Treat Stripe webhooks as the source of truth for payment completion, with confirmation-page reconciliation as a fallback for delayed webhooks.
+- The confirmation-page reconciliation debounce (`recentConfirmationReconciliations` in `src/server/actions/booking.ts`) is an in-memory, per-instance map, not a global lock. On a multi-instance or serverless deploy each instance keeps its own map, so the same session can be reconciled once per instance. This is harmless because reconciliation is idempotent and the webhook remains authoritative; do not rely on it as a distributed guard.
 - Treat management links as security-sensitive signed tokens. Do not log raw tokens or weaken signature/rotation behavior.

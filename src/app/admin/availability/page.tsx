@@ -1,9 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { saveAvailabilityRuleAction } from "@/server/actions/admin";
-import { SubmitButton } from "@/components/ui/submit-button";
-
-const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+import { AvailabilityRuleForm } from "@/components/admin/availability-rule-form";
 
 export const dynamic = "force-dynamic";
 
@@ -19,43 +16,24 @@ export default async function AdminAvailabilityPage() {
     >
       <section className="surface-block">
         <h2 className="text-lg font-semibold">Add rule</h2>
-        <form action={saveAvailabilityRuleAction} className="mt-4 grid gap-4 md:grid-cols-4">
-          <select className="field" name="dayOfWeek">
-            {days.map((day, index) => (
-              <option key={day} value={index}>
-                {day}
-              </option>
-            ))}
-          </select>
-          <input className="field" name="startTime" type="time" />
-          <input className="field" name="endTime" type="time" />
-          <label className="flex items-center gap-3 text-sm font-medium">
-            <input defaultChecked name="isActive" type="checkbox" />
-            Active
-          </label>
-          <SubmitButton>Add rule</SubmitButton>
-        </form>
+        <div className="mt-4">
+          <AvailabilityRuleForm />
+        </div>
       </section>
 
       <section className="grid gap-4">
         {rules.map((rule) => (
-          <form action={saveAvailabilityRuleAction} className="surface-block grid gap-4 md:grid-cols-5" key={rule.id}>
-            <input name="id" type="hidden" value={rule.id} />
-            <select className="field" defaultValue={rule.dayOfWeek} name="dayOfWeek">
-              {days.map((day, index) => (
-                <option key={day} value={index}>
-                  {day}
-                </option>
-              ))}
-            </select>
-            <input className="field" defaultValue={rule.startTime} name="startTime" type="time" />
-            <input className="field" defaultValue={rule.endTime} name="endTime" type="time" />
-            <label className="flex items-center gap-3 text-sm font-medium">
-              <input defaultChecked={rule.isActive} name="isActive" type="checkbox" />
-              Active
-            </label>
-            <SubmitButton>Save rule</SubmitButton>
-          </form>
+          <div className="surface-block" key={rule.id}>
+            <AvailabilityRuleForm
+              rule={{
+                id: rule.id,
+                dayOfWeek: rule.dayOfWeek,
+                startTime: rule.startTime,
+                endTime: rule.endTime,
+                isActive: rule.isActive,
+              }}
+            />
+          </div>
         ))}
       </section>
     </AdminShell>

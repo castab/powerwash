@@ -14,6 +14,19 @@ function requireEnv(name) {
   }
 }
 
+function requireSecret(name) {
+  requireEnv(name);
+  const value = process.env[name];
+
+  if (value.startsWith("change-me") || value.startsWith("replace-with")) {
+    throw new Error(`Environment variable ${name} is still set to a placeholder value.`);
+  }
+
+  if (value.length < 32) {
+    throw new Error(`Environment variable ${name} must be at least 32 characters.`);
+  }
+}
+
 function runNpmScript(script) {
   execFileSync(npmCommand, ["run", script], {
     stdio: "inherit",
@@ -26,7 +39,8 @@ async function main() {
   requireEnv("DATABASE_URL");
   requireEnv("DIRECT_URL");
   requireEnv("NEXT_PUBLIC_APP_URL");
-  requireEnv("ADMIN_SESSION_SECRET");
+  requireSecret("ADMIN_SESSION_SECRET");
+  requireSecret("MANAGE_LINK_SECRET");
   requireEnv("STRIPE_SECRET_KEY");
   requireEnv("STRIPE_WEBHOOK_SECRET");
   requireEnv("RESEND_API_KEY");

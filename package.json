@@ -2,6 +2,7 @@
   "name": "powerwash",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "dev:docker": "next dev --webpack --hostname 0.0.0.0",
@@ -9,7 +10,7 @@
     "build:app": "next build && node ./scripts/prepare-standalone.mjs",
     "build:vercel": "node ./scripts/vercel-build.mjs",
     "start": "node .next/standalone/server.js",
-    "test": "node --experimental-strip-types src/lib/booking-prefill.test.ts",
+    "test": "node ./scripts/run-tests.mjs",
     "start:railway": "sh ./scripts/start.sh",
     "lint": "eslint",
     "postinstall": "prisma generate",

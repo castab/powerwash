@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { BookingEventType, BookingStatus, PaymentStatus } from "@/generated/prisma/client";
-import { createHeldBooking } from "@/lib/booking";
+import { createHeldBooking, releaseHeldBooking } from "@/lib/booking";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { getEnv } from "@/lib/env";
 import {
@@ -16,6 +16,8 @@ import { reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
 import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
+import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { formatCurrency, toStripeCents } from "@/lib/utils";
 
@@ -24,6 +26,12 @@ export type BookingActionState = {
   message: string;
 };
 
+// Per-instance, in-memory debounce for confirmation-page reconciliation. This is
+// NOT a global lock: on a multi-instance deploy (e.g. Vercel, where each lambda
+// has its own module memory) the debounce is per-instance, so two instances can
+// each reconcile the same session once. That is harmless — reconciliation is
+// idempotent and the Stripe webhook is the source of truth; this map only trims
+// redundant confirmation-page re-checks on a single instance.
 const recentConfirmationReconciliations = new Map<string, number>();
 
 function getConfirmationReconcileConfig() {
@@ -213,6 +221,19 @@ export async function createBookingCheckoutAction(
     };
   }
 
+  // Throttle checkout creation: each attempt places a DB hold and opens a Stripe
+  // Checkout session, so this is the expensive public path worth protecting.
+  const ip = await getClientIp();
+  const rate = consumeRateLimit(`booking-checkout:ip:${ip}`, RATE_LIMITS.bookingCheckout);
+  if (!rate.ok) {
+    return {
+      status: "error",
+      message: "Too many booking attempts. Please wait a moment and try again.",
+    };
+  }
+
+  let heldBookingId: string | null = null;
+
   try {
     const env = getEnv();
     const appOrigin = await getRequestOrigin(env.appUrl);
@@ -222,11 +243,17 @@ export async function createBookingCheckoutAction(
       startAtIso: parsed.data.startAt,
       startAt,
     });
+    heldBookingId = booking.id;
 
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: booking.email,
+      // Expire the Checkout session together with the hold so a lapsed hold
+      // can neither block the slot nor be paid for after it is released.
+      expires_at: booking.paymentExpiresAt
+        ? Math.floor(booking.paymentExpiresAt.getTime() / 1000)
+        : undefined,
       metadata: {
         bookingId: booking.id,
         checkoutPurpose: "deposit",
@@ -257,6 +284,14 @@ export async function createBookingCheckoutAction(
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
+    }
+
+    if (heldBookingId) {
+      try {
+        await releaseHeldBooking(heldBookingId, "checkout-setup-failed");
+      } catch (releaseError) {
+        console.error("Failed to release held booking after checkout error", releaseError);
+      }
     }
 
     return {

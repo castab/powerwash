@@ -30,16 +30,29 @@ If no documentation update is needed, say why in the final response or pull requ
 
 ## Important Invariants
 
-- Do not weaken double-booking protections. Booking overlap safety relies on slot filtering, a pre-insert recheck, a serializable transaction, and a PostgreSQL exclusion constraint.
+- Do not weaken double-booking protections. Booking overlap safety relies on slot filtering, a pre-insert recheck, expired-hold cleanup inside the booking transaction, a serializable transaction, and a PostgreSQL exclusion constraint.
+- Do not let admin reschedules bypass overlap validation. `updateBookingAction` in `src/server/actions/admin.ts` must call `findOverlappingActiveBooking` (`src/lib/booking.ts`, excluding the booking being moved) before applying a new `startAt`/`endAt` and return a readable error instead of writing when it collides. The `booking_no_overlap` exclusion constraint stays authoritative: keep the `booking.update` wrapped so a Prisma known/unknown request error on a reschedule maps to the same friendly message, and never let a raw constraint error reach the admin screen. `findOverlappingActiveBooking` must keep the same active-conflict definition as `createHeldBooking`.
+- Keep hold, Stripe session, and database lifetimes aligned. The deposit Checkout session `expires_at` must match the booking `paymentExpiresAt` (35 minutes), and expired `PENDING_PAYMENT` holds must be released (via webhook reconciliation or lazy cleanup) rather than left blocking the exclusion constraint.
+- Anchor all scheduling math and customer-facing time display to the business time zone helpers in `src/lib/business-time.ts`. Never parse or format appointment times with server-local `Date` semantics; the app must behave identically on a UTC host.
 - Do not treat visible availability as authoritative by itself. Booking creation must revalidate server-side.
 - Do not mark balance payment completion as service completion. Balance checkout sets payment state to paid, not booking status to completed.
 - Treat Stripe reconciliation as shared behavior between webhooks and confirmation-page fallback.
 - Do not log, persist, or expose raw customer manage tokens beyond the intended emailed/manage URLs.
-- Manage links are HMAC-signed tokens validated against booking token version and rotation timestamp.
+- Manage links are HMAC-signed tokens validated against booking token version and rotation timestamp. The pure sign/verify lives in `src/lib/manage-token.ts` (no DB/env/email); `booking-management.ts` wraps it with the booking row and `getEnv().manageLinkSecret`. Keep the secret out of the pure module (pass it in) so the token logic stays unit-testable.
+- The pure Stripe reconciliation predicates live in `src/lib/stripe-reconciliation-decisions.ts` (deposit/balance × completed/expired, plus session-metadata getters). `stripe-reconciliation.ts` owns all DB reads/writes and event creation and must call these helpers rather than re-inlining the decision logic, so the decision table stays covered by `stripe-reconciliation-decisions.test.ts`.
 - Preserve token rotation semantics. Resending a manage link invalidates earlier links.
 - Preserve cancellation rules: automatic refund only at least 24 hours before appointment; inside 24 hours requires manual/admin refund handling.
-- Preserve admin authorization checks in server actions that mutate protected data.
+- Preserve admin authorization checks in server actions that mutate protected data. Every mutating action in `src/server/actions/admin.ts` must begin with `requireAdmin()`; middleware cookie presence is not an authorization boundary for actions.
+- `ADMIN_SESSION_SECRET` and `MANAGE_LINK_SECRET` fail closed in production: `src/lib/env.ts` throws when either is missing, shorter than 32 characters, or a placeholder value, and both deploy scripts validate them. Do not reintroduce silent fallbacks outside local development.
 - Keep email behavior aligned with payment, manage-link, cancellation, and refund state changes.
+- Treat the initial manage-link email as a best-effort side effect of Stripe reconciliation. Payment state must be committed before the email, and the send must be wrapped so a Resend failure is logged (with the booking id) but never propagates out of `reconcileCheckoutSession` / the webhook. Reconciliation must return success on email failure so Stripe does not retry indefinitely.
+- Keep the initial manage-link email single-send under concurrency. `ensureInitialManageBookingEmail` claims `manageLinkSentAt` with a conditional `updateMany` (`where: { manageLinkSentAt: null }`) before sending and only sends when the claim wins; a failed send must release the claim. Do not revert to reading-then-sending, which allows duplicate emails when the webhook and confirmation-page reconcile run concurrently.
+- Do not let unresolved bookings age out of the admin dashboard by date. `getAdminBookings` in `src/lib/booking.ts` must keep a booking on the active list until it is terminal *and* payment-settled (or archived). Past `CONFIRMED` bookings, any `PARTIALLY_PAID` booking, and completed paid bookings inside the refund window stay visible so balance collection, completion, and refund actions remain reachable after the appointment date.
+- Keep admin login constant-time and rate limited. `loginAdminAction` must consult the `src/lib/rate-limit.ts` limiter (per IP and per email) before the bcrypt comparison and reject over-limit sources with a generic message, and every failure path (unknown email, inactive account, wrong password) must run exactly one bcrypt comparison — against `DUMMY_PASSWORD_HASH` when the email has no admin — so response timing cannot enumerate admin emails. Do not short-circuit before the comparison for a missing/inactive user.
+- Do not remove the rate limiting on public entry points. `/api/availability` and `createBookingCheckoutAction` must consume the shared limiter; the booking-checkout limit is checked before a hold and Stripe session are created. Limiter state is in-process and per-instance by design; document that when changing hosting assumptions.
+- Do not let production seed the default admin password. `prisma/seed.ts` must throw in production when `SEED_ADMIN_PASSWORD` is unset or equals the documented default, so a public deploy cannot bootstrap the known credentials.
+- Surface expected admin action outcomes as returned state, not thrown errors. Admin mutations in `src/server/actions/admin.ts` return the shared `AdminActionState` (`{ error?, success? }`) and their forms render it via `useActionState`, because Next.js redacts thrown server-action messages in production. Validation and precondition failures (bad input, wrong booking state, missing Stripe references, etc.) must `return { error }`; only genuinely unexpected failures (DB outage, Stripe not returning a link) may `throw`, and those are caught by the `/admin` error boundary at `src/app/admin/error.tsx`. Do not revert these actions to `throw new Error(...)` for expected outcomes or remove the error boundary.
+- Coerce a missing form `id` to `undefined` before schema parsing in every admin save action. The create forms (`service-form.tsx`, `availability-rule-form.tsx`, `blackout-form.tsx`) render no `id` input on the create path, so `formData.get("id")` returns `null`; the `id` schemas use `z.string().optional()`, which accepts `undefined` but rejects `null` under Zod v4. `saveServiceAction`, `saveAvailabilityRuleAction`, and `saveBlackoutAction` must all derive `id` as `typeof idValue === "string" && idValue.length > 0 ? idValue : undefined` before calling `safeParse`. Do not pass `formData.get("id")` straight into a schema's `id` field.
 
 ## Common Commands
 
@@ -109,22 +122,33 @@ Start Stripe CLI helper through Compose:
 docker compose --profile stripe up stripe-cli
 ```
 
-## Current Test Caveat
+## Testing
 
-`npm test` currently runs `src/lib/booking-prefill.test.ts`. There is also `src/lib/utils.test.ts`, but it is not currently included in the package `test` script.
+`npm test` runs `scripts/run-tests.mjs`, which discovers **every** `src/**/*.test.ts` file and runs each in its own `node --experimental-strip-types` child process, failing if any file fails. `scripts/test-resolve-hook.mjs` (loaded via `--import`) teaches Node the `@/*` path alias and extensionless imports so tests can import app modules without a bundler. To add a test, drop a new `*.test.ts` anywhere under `src/`; it is picked up automatically. There is no orphaned test file — `utils.test.ts`, `validators.test.ts`, and the rest all run.
+
+Tests favor pure logic. Extract pure helpers when a payment/booking rule is worth testing rather than reaching for a database: `manage-token.ts` (token sign/verify) and `stripe-reconciliation-decisions.ts` (reconciliation predicates) were split out of their DB-bound modules for exactly this. DB-dependent paths (the `createHeldBooking` race, exclusion-constraint rejection, reconciliation persistence/events) still need a real Postgres and remain a follow-up for an integration harness — do not fake Prisma to assert them.
 
 ## Key Files
 
 - `src/components/booking/booking-form.tsx`: booking UI and slot lookup behavior.
-- `src/lib/booking.ts`: slot generation, held booking creation, and overlap protection.
+- `src/lib/booking.ts`: slot lookup queries, held booking creation, expired-hold release, and overlap protection.
+- `src/lib/booking-slots.ts`: pure business-time-zone slot computation shared by slot lookup and tests.
+- `src/lib/business-time.ts`: business time zone constant, formatters, parser, and business-day helpers.
 - `src/server/actions/booking.ts`: customer booking checkout, cancellation, manage-link resend, and confirmation reconciliation actions.
 - `src/app/api/availability/route.ts`: public availability API.
 - `src/app/api/stripe/webhook/route.ts`: Stripe webhook entry point.
-- `src/lib/stripe-reconciliation.ts`: deposit and balance checkout reconciliation.
-- `src/lib/booking-management.ts`: manage-link token signing, verification, rotation, and customer booking emails.
+- `src/lib/stripe-reconciliation.ts`: deposit and balance checkout reconciliation (DB reads/writes + events).
+- `src/lib/stripe-reconciliation-decisions.ts`: pure reconciliation decision predicates and session-metadata getters used by the reconciler and its decision-table tests.
+- `src/lib/booking-management.ts`: manage-link rotation, customer booking lookup, and customer booking emails.
+- `src/lib/manage-token.ts`: pure HMAC manage-link token sign/verify (secret passed in).
 - `src/lib/balance-payment.ts`: remaining balance payment request email flow.
-- `src/server/actions/admin.ts`: admin mutations for services, availability, blackouts, bookings, balance requests, archives, and refunds.
+- `src/server/actions/admin.ts`: admin mutations for services, availability, blackouts (create/edit via `saveBlackoutAction`, remove via `deactivateBlackoutAction`), bookings, balance requests, archives, and refunds. All return the shared `AdminActionState` (`{ error?, success? }`) for expected outcomes so validation/precondition messages render inline via `useActionState`; only unexpected failures throw. Blackout datetime fields are parsed with `parseBusinessDateTimeLocalValue` (business time zone). `saveServiceAction`, `saveAvailabilityRuleAction`, and `saveBlackoutAction` all coerce a missing `id` (`formData.get("id")` returns `null` on the create path) to `undefined` before parsing, since the schemas' `id: z.string().optional()` rejects `null` under Zod v4.
+- `src/components/admin/booking-update-form.tsx`: client form for admin booking status/reschedule/notes updates; renders `updateBookingAction` error/success state inline.
+- `src/components/admin/service-form.tsx`, `availability-rule-form.tsx`, `blackout-form.tsx`, `blackout-remove-button.tsx`, `admin-action-form.tsx`: client forms/wrappers that render their admin action's `AdminActionState` result inline via the shared `action-messages.tsx` banner. `blackout-form.tsx` is both the create and per-row edit form.
+- `src/app/admin/error.tsx`: `/admin` segment error boundary for genuinely unexpected server-action failures.
 - `src/lib/auth.ts`: admin session cookie and authorization helpers.
+- `src/lib/rate-limit.ts`: in-memory fixed-window rate limiter and shared `RATE_LIMITS` presets.
+- `src/lib/request-ip.ts`: client IP resolution for rate limiting (route handlers and server actions).
 - `src/lib/env.ts`: environment variable access.
 - `prisma.config.ts`: Prisma v7 CLI configuration for schema, migrations, seed, and database URLs.
 - `prisma/schema.prisma`: Prisma data model and enums.
@@ -151,6 +175,7 @@ docker compose --profile stripe up stripe-cli
 - Stripe Checkout sessions must include enough metadata for reconciliation.
 - Keep webhook and confirmation-page reconciliation behavior consistent by using shared reconciliation code.
 - When adding email-triggering behavior, consider duplicate sends, idempotency, and state transitions.
+- Reconciliation-triggered emails must be best-effort and single-send: log-and-continue on failure, and claim the send atomically before delivering (see the manage-link invariant above).
 - For local webhook testing, use the Compose `stripe-cli` profile and update `STRIPE_WEBHOOK_SECRET` from the current listener output.
 
 ## UI Styling Guidance
