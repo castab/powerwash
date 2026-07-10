@@ -107,10 +107,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
             <p className="mt-1 text-sm text-muted">
               {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
             </p>
-            <p className="mt-1 text-sm text-muted">
-              Vehicle: {booking.vehicleYear ? `${booking.vehicleYear} ` : ""}
-              {booking.vehicleMake} {booking.vehicleModel}
-            </p>
+            <p className="mt-1 text-sm text-muted">Vehicle: {booking.vehicleDescription}</p>
           </div>
           <div className="soft-surface p-5">
             <p className="text-sm text-muted">Payment summary</p>

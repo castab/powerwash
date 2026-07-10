@@ -169,10 +169,7 @@ export default async function BookingManagePage({ searchParams }: Props) {
             </p>
             <p className="mt-1 text-sm text-muted">{booking.service.name}</p>
             <p className="mt-4 text-sm text-muted">Vehicle</p>
-            <p className="mt-1 text-sm font-medium">
-              {booking.vehicleYear ? `${booking.vehicleYear} ` : ""}
-              {booking.vehicleMake} {booking.vehicleModel}
-            </p>
+            <p className="mt-1 text-sm font-medium">{booking.vehicleDescription}</p>
             <p className="mt-1 text-sm text-muted">
               {booking.vehicleColor || "Color not provided"}
               {booking.vehicleLicensePlate ? ` | Plate ${booking.vehicleLicensePlate}` : ""}

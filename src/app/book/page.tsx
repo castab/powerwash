@@ -31,7 +31,7 @@ export default async function BookPage() {
       <main className="shell pb-10 pt-0 sm:pb-12 sm:pt-2">
         <section className="mb-8 max-w-3xl">
           <p className="eyebrow">Book a wash</p>
-          <h1 className="page-title mt-4">Choose a time and tell us what to clean.</h1>
+          <h1 className="page-title mt-4">Book your wash in five quick steps.</h1>
           <p className="mt-4 text-sm leading-6 text-muted sm:text-base">
             Reserve with a deposit today. The remaining balance is collected after the service is complete.
           </p>

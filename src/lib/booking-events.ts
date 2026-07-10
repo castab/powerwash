@@ -15,9 +15,7 @@ export function pickBookingEventState(
     lastName: string;
     email: string;
     phone: string;
-    vehicleMake: string;
-    vehicleModel: string;
-    vehicleYear: number | null;
+    vehicleDescription: string;
     vehicleColor: string | null;
     vehicleLicensePlate: string | null;
     customerNotes: string | null;

@@ -148,9 +148,7 @@ export async function createHeldBooking(input: {
   lastName: string;
   email: string;
   phone: string;
-  make: string;
-  model: string;
-  year?: number;
+  vehicleDescription: string;
   color?: string;
   licensePlate?: string;
   notes?: string;
@@ -234,9 +232,7 @@ export async function createHeldBooking(input: {
             lastName: input.lastName,
             email: input.email,
             phone: input.phone,
-            vehicleMake: input.make,
-            vehicleModel: input.model,
-            vehicleYear: input.year,
+            vehicleDescription: input.vehicleDescription,
             vehicleColor: input.color,
             vehicleLicensePlate: input.licensePlate,
             customerNotes: input.notes,

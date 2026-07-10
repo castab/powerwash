@@ -32,9 +32,7 @@ runTest("parseDevBookingPrefill returns typed data when enabled with valid json"
       lastName: "Taylor",
       email: "jordan@example.com",
       phone: "5551234567",
-      make: "Toyota",
-      model: "RAV4",
-      year: 2022,
+      vehicleDescription: "2022 Toyota RAV4",
       color: "Pearl white",
       licensePlate: "8ABC123",
       notes: "Pet hair",
@@ -46,9 +44,7 @@ runTest("parseDevBookingPrefill returns typed data when enabled with valid json"
     lastName: "Taylor",
     email: "jordan@example.com",
     phone: "5551234567",
-    make: "Toyota",
-    model: "RAV4",
-    year: "2022",
+    vehicleDescription: "2022 Toyota RAV4",
     color: "Pearl white",
     licensePlate: "8ABC123",
     notes: "Pet hair",
@@ -64,23 +60,6 @@ runTest("parseDevBookingPrefill returns null for malformed json", () => {
   assert.equal(result, null);
 });
 
-runTest("parseDevBookingPrefill omits invalid year by failing closed", () => {
-  const result = parseDevBookingPrefill({
-    enabled: "true",
-    json: JSON.stringify({
-      firstName: "Jordan",
-      lastName: "Taylor",
-      email: "jordan@example.com",
-      phone: "5551234567",
-      make: "Toyota",
-      model: "RAV4",
-      year: "22",
-    }),
-  });
-
-  assert.equal(result, null);
-});
-
 runTest("parseDevBookingPrefill fills missing optional fields with empty strings", () => {
   const result = parseDevBookingPrefill({
     enabled: "true",
@@ -89,8 +68,7 @@ runTest("parseDevBookingPrefill fills missing optional fields with empty strings
       lastName: "Taylor",
       email: "jordan@example.com",
       phone: "5551234567",
-      make: "Toyota",
-      model: "RAV4",
+      vehicleDescription: "2022 Toyota RAV4",
     }),
   });
 
@@ -99,9 +77,7 @@ runTest("parseDevBookingPrefill fills missing optional fields with empty strings
     lastName: "Taylor",
     email: "jordan@example.com",
     phone: "5551234567",
-    make: "Toyota",
-    model: "RAV4",
-    year: "",
+    vehicleDescription: "2022 Toyota RAV4",
     color: "",
     licensePlate: "",
     notes: "",
@@ -116,7 +92,7 @@ runTest("parseDevBookingPrefill returns null for incomplete required payloads", 
       lastName: "Taylor",
       email: "jordan@example.com",
       phone: "5551234567",
-      make: "Toyota",
+      vehicleDescription: "",
     }),
   });
 
@@ -129,9 +105,7 @@ runTest("applyBookingFormPrefill merges onto existing values", () => {
     lastName: "Taylor",
     email: "jordan@example.com",
     phone: "5551234567",
-    make: "Toyota",
-    model: "RAV4",
-    year: "2022",
+    vehicleDescription: "2022 Toyota RAV4",
     color: "Pearl white",
     licensePlate: "8ABC123",
     notes: "Pet hair",
@@ -142,9 +116,7 @@ runTest("applyBookingFormPrefill merges onto existing values", () => {
     lastName: "Taylor",
     email: "jordan@example.com",
     phone: "5551234567",
-    make: "Toyota",
-    model: "RAV4",
-    year: "2022",
+    vehicleDescription: "2022 Toyota RAV4",
     color: "Pearl white",
     licensePlate: "8ABC123",
     notes: "Pet hair",
