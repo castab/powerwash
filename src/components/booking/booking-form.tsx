@@ -16,9 +16,9 @@ const initialState: BookingActionState = {
   message: "",
 };
 
-const steps = ["Service & appointment", "Vehicle", "Contact", "Review & pay"] as const;
+const steps = ["Service", "Appointment", "Vehicle", "Contact", "Review & pay"] as const;
 
-type StepIndex = 0 | 1 | 2 | 3;
+type StepIndex = 0 | 1 | 2 | 3 | 4;
 type TimePeriod = "morning" | "afternoon";
 type BookingFormValues = BookingFormPrefill;
 type FieldErrors = Partial<Record<keyof BookingFormValues | "time", string>>;
@@ -139,15 +139,15 @@ export function BookingForm({
   function validateStep(step: StepIndex) {
     const errors: FieldErrors = {};
 
-    if (step === 0 && !selectedStartAt) {
+    if (step === 1 && !selectedStartAt) {
       errors.time = "Choose an available time.";
     }
 
-    if (step === 1 && values.vehicleDescription.trim().length < 3) {
+    if (step === 2 && values.vehicleDescription.trim().length < 3) {
       errors.vehicleDescription = "Enter the vehicle year, make, and model.";
     }
 
-    if (step === 2) {
+    if (step === 3) {
       if (values.firstName.trim().length < 2) errors.firstName = "Enter a first name.";
       if (values.lastName.trim().length < 2) errors.lastName = "Enter a last name.";
       if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) errors.email = "Enter a valid email.";
@@ -165,7 +165,7 @@ export function BookingForm({
   }
 
   function continueToNextStep() {
-    if (!validateStep(currentStep) || currentStep === 3) return;
+    if (!validateStep(currentStep) || currentStep === 4) return;
     goToStep((currentStep + 1) as StepIndex);
   }
 
@@ -190,12 +190,12 @@ export function BookingForm({
         <p className="eyebrow">Reserve with deposit only</p>
         <h2 className="mt-3 text-3xl font-semibold tracking-tight">Book your wash</h2>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Four quick steps, then you will continue to Stripe to pay the deposit.
+          Five quick steps, then you will continue to Stripe to pay the deposit.
         </p>
       </div>
 
       <nav aria-label="Booking progress" className="mt-7">
-        <ol className="grid grid-cols-4 gap-2">
+        <ol className="grid grid-cols-5 gap-2">
           {steps.map((step, index) => {
             const isCurrent = currentStep === index;
             const isComplete = currentStep > index;
@@ -244,22 +244,36 @@ export function BookingForm({
 
         {currentStep === 0 ? (
           <div className="mt-5 grid gap-5">
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="stack gap-2">
-                <span className="text-sm font-medium">Service</span>
-                <select
-                  className="field"
-                  onChange={(event) => setSelectedServiceId(event.target.value)}
-                  value={selectedServiceId}
-                >
-                  {services.map((service) => (
-                    <option key={service.id} value={service.id}>
-                      {service.name} ({service.durationMinutes} min)
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className="stack gap-2 max-w-xl">
+              <span className="text-sm font-medium">Service</span>
+              <select
+                className="field"
+                onChange={(event) => setSelectedServiceId(event.target.value)}
+                value={selectedServiceId}
+              >
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name} ({service.durationMinutes} min)
+                  </option>
+                ))}
+              </select>
+            </label>
 
+            {selectedService ? (
+              <div className="rounded-2xl bg-surface-strong/60 p-5 text-sm ring-1 ring-foreground/5">
+                <p className="font-semibold">{selectedService.name}</p>
+                <p className="mt-2 text-muted">Approximately {selectedService.durationMinutes} minutes</p>
+                <p className="mt-1 text-muted">
+                  {formatCurrency(selectedService.depositAmount)} deposit · {formatCurrency(selectedService.basePrice)} total
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {currentStep === 1 ? (
+          <div className="mt-5 rounded-[1.75rem] bg-surface-strong/40 p-4 ring-1 ring-foreground/5 sm:p-5">
+            <div className="grid gap-4 md:grid-cols-[minmax(16rem,1fr)_auto] md:items-end">
               <label className="stack gap-2">
                 <span className="text-sm font-medium">Date</span>
                 <input
@@ -272,22 +286,11 @@ export function BookingForm({
                   value={selectedDate}
                 />
               </label>
-            </div>
-
-            <fieldset aria-describedby={fieldErrors.time ? "time-error" : undefined}>
-              <legend className="text-sm font-medium">Available start time</legend>
-
-              {isLoadingSlots ? (
-                <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <div className="h-11 animate-pulse rounded-2xl bg-white/70" key={index} />
-                  ))}
-                </div>
-              ) : null}
 
               {!isLoadingSlots && slots.length ? (
-                <>
-                  <div className="mt-3 inline-flex rounded-full bg-surface-strong/70 p-1 ring-1 ring-foreground/5">
+                <fieldset>
+                  <legend className="text-sm font-medium">Time of day</legend>
+                  <div className="mt-2 inline-flex rounded-full bg-white/60 p-1 ring-1 ring-foreground/5">
                     {(["morning", "afternoon"] as const).map((period) => {
                       const periodSlots = period === "morning" ? morningSlots : afternoonSlots;
                       const isSelected = timePeriod === period;
@@ -308,32 +311,50 @@ export function BookingForm({
                       );
                     })}
                   </div>
+                </fieldset>
+              ) : null}
+            </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
-                    {visibleSlots.map((slot) => {
-                      const isSelected = selectedStartAt === slot.startAt;
+            <fieldset
+              aria-describedby={fieldErrors.time ? "time-error" : undefined}
+              className="mt-6 border-t border-foreground/10 pt-5"
+            >
+              <legend className="sr-only">Available start time</legend>
+              <p className="text-sm font-medium">Choose a start time</p>
 
-                      return (
-                        <button
-                          aria-pressed={isSelected}
-                          className={`rounded-2xl px-3 py-3 text-sm font-medium ring-1 ${
-                            isSelected
-                              ? "bg-brand text-white ring-brand"
-                              : "bg-white/70 text-foreground ring-foreground/10 hover:bg-white"
-                          }`}
-                          key={slot.startAt}
-                          onClick={() => {
-                            setSelectedStartAt(slot.startAt);
-                            setFieldErrors((current) => ({ ...current, time: undefined }));
-                          }}
-                          type="button"
-                        >
-                          {slot.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
+              {isLoadingSlots ? (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                  {Array.from({ length: 12 }).map((_, index) => (
+                    <div className="h-11 animate-pulse rounded-2xl bg-white/70" key={index} />
+                  ))}
+                </div>
+              ) : null}
+
+              {!isLoadingSlots && slots.length ? (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                  {visibleSlots.map((slot) => {
+                    const isSelected = selectedStartAt === slot.startAt;
+
+                    return (
+                      <button
+                        aria-pressed={isSelected}
+                        className={`rounded-2xl px-3 py-3 text-sm font-medium ring-1 ${
+                          isSelected
+                            ? "bg-brand text-white ring-brand"
+                            : "bg-white/80 text-foreground ring-foreground/10 hover:bg-white"
+                        }`}
+                        key={slot.startAt}
+                        onClick={() => {
+                          setSelectedStartAt(slot.startAt);
+                          setFieldErrors((current) => ({ ...current, time: undefined }));
+                        }}
+                        type="button"
+                      >
+                        {slot.label}
+                      </button>
+                    );
+                  })}
+                </div>
               ) : null}
 
               <span id="time-error">
@@ -341,25 +362,13 @@ export function BookingForm({
               </span>
               {availabilityError ? <p className="text-sm text-danger">{availabilityError}</p> : null}
               {!isLoadingSlots && !availabilityError && !slots.length ? (
-                <p className="text-sm text-muted">Try another date to find an open appointment.</p>
+                <p className="mt-3 text-sm text-muted">Try another date to find an open appointment.</p>
               ) : null}
             </fieldset>
-
-            {selectedService ? (
-              <div className="rounded-2xl bg-surface-strong/60 p-4 text-sm ring-1 ring-foreground/5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{selectedService.name}</span>
-                  <span className="font-semibold">
-                    {formatCurrency(selectedService.depositAmount)} deposit ·{" "}
-                    {formatCurrency(selectedService.basePrice)} total
-                  </span>
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : null}
 
-        {currentStep === 1 ? (
+        {currentStep === 2 ? (
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {devPrefill ? (
               <div className="md:col-span-2">
@@ -419,7 +428,7 @@ export function BookingForm({
           </div>
         ) : null}
 
-        {currentStep === 2 ? (
+        {currentStep === 3 ? (
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {([
               ["firstName", "First name", "Jordan", "text"],
@@ -446,22 +455,32 @@ export function BookingForm({
           </div>
         ) : null}
 
-        {currentStep === 3 ? (
+        {currentStep === 4 ? (
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl bg-surface-strong/60 p-5 ring-1 ring-foreground/5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold">Appointment</p>
+                  <p className="text-sm font-semibold">Service</p>
                   <p className="mt-2 text-sm text-muted">{selectedService?.name}</p>
-                  <p className="text-sm text-muted">
-                    {formatSelectedDate(selectedDate)} at {selectedSlot?.label}
-                  </p>
+                  <p className="text-sm text-muted">Approximately {selectedService?.durationMinutes} minutes</p>
                 </div>
                 <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(0)} type="button">Edit</button>
               </div>
             </div>
 
             <div className="rounded-2xl bg-surface-strong/60 p-5 ring-1 ring-foreground/5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Appointment</p>
+                  <p className="text-sm text-muted">
+                    {formatSelectedDate(selectedDate)} at {selectedSlot?.label}
+                  </p>
+                </div>
+                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(1)} type="button">Edit</button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-surface-strong/60 p-5 ring-1 ring-foreground/5 md:col-span-2">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold">Vehicle</p>
@@ -472,7 +491,7 @@ export function BookingForm({
                   </p>
                   {values.notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{values.notes}</p> : null}
                 </div>
-                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(1)} type="button">Edit</button>
+                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(2)} type="button">Edit</button>
               </div>
             </div>
 
@@ -483,7 +502,7 @@ export function BookingForm({
                   <p className="mt-2 text-sm text-muted">{values.firstName} {values.lastName}</p>
                   <p className="text-sm text-muted">{values.email} · {values.phone}</p>
                 </div>
-                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(2)} type="button">Edit</button>
+                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(3)} type="button">Edit</button>
               </div>
             </div>
 
@@ -512,7 +531,7 @@ export function BookingForm({
           </button>
         ) : <span />}
 
-        {currentStep < 3 ? (
+        {currentStep < 4 ? (
           <button className="button-primary" onClick={continueToNextStep} type="button">
             Continue
           </button>
