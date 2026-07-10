@@ -97,9 +97,9 @@ Admin screens should share the same visual language as the rest of the applicati
 ### Customer Booking Flow
 
 1. Customer opens `/` to browse active services.
-2. Customer opens `/book`, which renders active services and the booking form.
-3. The booking form calls `/api/availability?serviceId=...&date=...` to retrieve available slots.
-4. The customer submits the booking form to `createBookingCheckoutAction`.
+2. Customer opens `/book`, which renders a four-step flow for appointment, vehicle, contact, and review.
+3. The appointment step uses a date input constrained to the booking window, then calls `/api/availability?serviceId=...&date=...` to populate morning and afternoon time choices.
+4. The customer reviews the reservation and submits it to `createBookingCheckoutAction`.
 5. The server validates input with `bookingSchema`.
 6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 30 minutes in the future.
 7. The server creates a Stripe Checkout session for the deposit and redirects the customer to Stripe.
@@ -177,7 +177,7 @@ Admin screens should share the same visual language as the rest of the applicati
 Main models:
 
 - `Service`: service name, slug, duration, base price, deposit, and active flag.
-- `Booking`: customer, vehicle, appointment range, payment state, Stripe deposit, balance, and refund references, manage-link metadata, balance request metadata, refund metadata, archival metadata, and audit events.
+- `Booking`: customer, combined vehicle description, appointment range, payment state, Stripe deposit, balance, and refund references, manage-link metadata, balance request metadata, refund metadata, archival metadata, and audit events.
 - `AvailabilityRule`: recurring weekly hours.
 - `BlackoutDate`: one-off blocked windows.
 - `AdminUser`: dashboard login identity.
@@ -377,7 +377,7 @@ Add these values in `.env.local` or `.env` only for local development:
 
 ```env
 NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true
-NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","make":"Toyota","model":"RAV4","year":"2022","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","vehicleDescription":"2022 Toyota RAV4","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
 ```
 
 Notes:

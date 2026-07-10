@@ -1,8 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { applyBookingFormPrefill, emptyBookingFormPrefill, type BookingFormPrefill } from "@/lib/booking-prefill";
+import {
+  applyBookingFormPrefill,
+  emptyBookingFormPrefill,
+  type BookingFormPrefill,
+} from "@/lib/booking-prefill";
 import { createBookingCheckoutAction, type BookingActionState } from "@/server/actions/booking";
 import { formatCurrency } from "@/lib/utils";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -12,9 +16,12 @@ const initialState: BookingActionState = {
   message: "",
 };
 
-type BookingFormValues = BookingFormPrefill;
+const steps = ["Service & appointment", "Vehicle", "Contact", "Review & pay"] as const;
 
-const initialValues: BookingFormValues = emptyBookingFormPrefill;
+type StepIndex = 0 | 1 | 2 | 3;
+type TimePeriod = "morning" | "afternoon";
+type BookingFormValues = BookingFormPrefill;
+type FieldErrors = Partial<Record<keyof BookingFormValues | "time", string>>;
 
 export type BookingFormService = {
   id: string;
@@ -23,6 +30,26 @@ export type BookingFormService = {
   basePrice: string;
   depositAmount: string;
 };
+
+function formatSelectedDate(date: string) {
+  if (!date) return "Not selected";
+
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(new Date(`${date}T12:00:00`));
+}
+
+function getSlotPeriod(slot: { label: string }): TimePeriod {
+  return slot.label.endsWith("AM") ? "morning" : "afternoon";
+}
+
+function ErrorMessage({ children }: { children?: string }) {
+  if (!children) return null;
+
+  return <span className="text-sm text-danger">{children}</span>;
+}
 
 export function BookingForm({
   services,
@@ -35,45 +62,58 @@ export function BookingForm({
 }) {
   const searchParams = useSearchParams();
   const defaultServiceId = searchParams.get("serviceId") ?? services[0]?.id ?? "";
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const [currentStep, setCurrentStep] = useState<StepIndex>(0);
   const [selectedServiceId, setSelectedServiceId] = useState(defaultServiceId);
   const [selectedDate, setSelectedDate] = useState(dateOptions[0] ?? "");
   const [selectedStartAt, setSelectedStartAt] = useState("");
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("morning");
   const [slots, setSlots] = useState<Array<{ startAt: string; label: string }>>([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
-  const [values, setValues] = useState(initialValues);
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [values, setValues] = useState<BookingFormValues>(emptyBookingFormPrefill);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [state, formAction] = useActionState(createBookingCheckoutAction, initialState);
 
   const selectedService = services.find((service) => service.id === selectedServiceId);
+  const selectedSlot = slots.find((slot) => slot.startAt === selectedStartAt);
+  const morningSlots = slots.filter((slot) => getSlotPeriod(slot) === "morning");
+  const afternoonSlots = slots.filter((slot) => getSlotPeriod(slot) === "afternoon");
+  const visibleSlots = timePeriod === "morning" ? morningSlots : afternoonSlots;
+  const balanceDue = selectedService
+    ? Math.max(Number(selectedService.basePrice) - Number(selectedService.depositAmount), 0)
+    : 0;
 
   useEffect(() => {
     let isCancelled = false;
 
     async function loadSlots() {
       if (!selectedServiceId || !selectedDate) return;
+
       setIsLoadingSlots(true);
+      setAvailabilityError("");
+      setSelectedStartAt("");
 
       try {
         const response = await fetch(
           `/api/availability?serviceId=${selectedServiceId}&date=${selectedDate}`,
         );
-        const data = response.ok
-          ? ((await response.json()) as Array<{ startAt: string; label: string }>)
-          : [];
 
-        if (isCancelled) return;
+        if (!response.ok) {
+          throw new Error("Unable to load available times.");
+        }
 
-        setSlots(data);
-        setSelectedStartAt((current) => {
-          if (data.some((slot) => slot.startAt === current)) {
-            return current;
-          }
+        const data = (await response.json()) as Array<{ startAt: string; label: string }>;
 
-          return data[0]?.startAt ?? "";
-        });
+        if (!isCancelled) {
+          setSlots(data);
+          setTimePeriod(data.some((slot) => getSlotPeriod(slot) === "morning") ? "morning" : "afternoon");
+        }
       } catch {
-        if (isCancelled) return;
-        setSlots([]);
-        setSelectedStartAt("");
+        if (!isCancelled) {
+          setSlots([]);
+          setAvailabilityError("Unable to load available times. Please try another date.");
+        }
       } finally {
         if (!isCancelled) {
           setIsLoadingSlots(false);
@@ -88,6 +128,47 @@ export function BookingForm({
     };
   }, [selectedDate, selectedServiceId]);
 
+  function updateValue<Key extends keyof BookingFormValues>(
+    key: Key,
+    value: BookingFormValues[Key],
+  ) {
+    setValues((current) => ({ ...current, [key]: value }));
+    setFieldErrors((current) => ({ ...current, [key]: undefined }));
+  }
+
+  function validateStep(step: StepIndex) {
+    const errors: FieldErrors = {};
+
+    if (step === 0 && !selectedStartAt) {
+      errors.time = "Choose an available time.";
+    }
+
+    if (step === 1 && values.vehicleDescription.trim().length < 3) {
+      errors.vehicleDescription = "Enter the vehicle year, make, and model.";
+    }
+
+    if (step === 2) {
+      if (values.firstName.trim().length < 2) errors.firstName = "Enter a first name.";
+      if (values.lastName.trim().length < 2) errors.lastName = "Enter a last name.";
+      if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) errors.email = "Enter a valid email.";
+      if (values.phone.trim().length < 10) errors.phone = "Enter a valid phone number.";
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  function goToStep(step: StepIndex) {
+    setCurrentStep(step);
+    setFieldErrors({});
+    requestAnimationFrame(() => stepHeadingRef.current?.focus());
+  }
+
+  function continueToNextStep() {
+    if (!validateStep(currentStep) || currentStep === 3) return;
+    goToStep((currentStep + 1) as StepIndex);
+  }
+
   if (!services.length) {
     return (
       <div className="surface-block text-sm text-muted">
@@ -98,239 +179,346 @@ export function BookingForm({
 
   return (
     <form action={formAction} className="soft-surface p-5 sm:p-7">
+      <input name="serviceId" type="hidden" value={selectedServiceId} />
+      <input name="date" type="hidden" value={selectedDate} />
       <input name="startAt" type="hidden" value={selectedStartAt} />
+      {Object.entries(values).map(([name, value]) => (
+        <input key={name} name={name} type="hidden" value={value} />
+      ))}
+
       <div>
         <p className="eyebrow">Reserve with deposit only</p>
         <h2 className="mt-3 text-3xl font-semibold tracking-tight">Book your wash</h2>
-        <p className="text-sm leading-6 text-muted">
-          Choose a service, reserve an open time slot, and pay only the deposit online. The
-          remaining balance is collected in person after service.
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Four quick steps, then you will continue to Stripe to pay the deposit.
         </p>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
-        <label className="stack">
-          <span className="text-sm font-medium">Service</span>
-          <select
-            className="field"
-            name="serviceId"
-            onChange={(event) => setSelectedServiceId(event.target.value)}
-            value={selectedServiceId}
-          >
-            {services.map((service) => (
-              <option key={service.id} value={service.id}>
-                {service.name} ({service.durationMinutes} min, deposit{" "}
-                {formatCurrency(service.depositAmount)})
-              </option>
-            ))}
-          </select>
-        </label>
+      <nav aria-label="Booking progress" className="mt-7">
+        <ol className="grid grid-cols-4 gap-2">
+          {steps.map((step, index) => {
+            const isCurrent = currentStep === index;
+            const isComplete = currentStep > index;
 
-        <label className="stack">
-          <span className="text-sm font-medium">Date</span>
-          <select
-            className="field"
-            name="date"
-            onChange={(event) => setSelectedDate(event.target.value)}
-            value={selectedDate}
-          >
-            {dateOptions.map((date) => (
-              <option key={date} value={date}>
-                {date}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+            return (
+              <li className="relative min-w-0 text-center" key={step}>
+                {index > 0 ? (
+                  <span
+                    aria-hidden="true"
+                    className={`absolute right-1/2 top-4 -z-0 h-px w-full ${isComplete || isCurrent ? "bg-brand" : "bg-line"}`}
+                  />
+                ) : null}
+                <button
+                  aria-current={isCurrent ? "step" : undefined}
+                  className="relative z-10 inline-flex w-full flex-col items-center gap-2 text-xs font-medium"
+                  disabled={index > currentStep}
+                  onClick={() => goToStep(index as StepIndex)}
+                  type="button"
+                >
+                  <span
+                    className={`flex size-8 items-center justify-center rounded-full ring-1 ${
+                      isCurrent || isComplete
+                        ? "bg-brand text-white ring-brand"
+                        : "bg-white text-muted ring-line"
+                    }`}
+                  >
+                    {isComplete ? "✓" : index + 1}
+                  </span>
+                  <span className={isCurrent ? "text-foreground" : "text-muted"}>{step}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
 
-      <div className="mt-5 rounded-[2rem] bg-surface-strong/50 p-4 ring-1 ring-foreground/5">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold">Available start times</p>
-            <p className="text-xs text-muted">
-              Slots are generated from weekly availability, blackout rules, and existing bookings.
-            </p>
-          </div>
-          {selectedService && (
-            <div className="text-right text-sm">
-              <p className="font-semibold">{formatCurrency(selectedService.depositAmount)} deposit</p>
-              <p className="text-muted">{formatCurrency(selectedService.basePrice)} total</p>
-            </div>
-          )}
-        </div>
+      <section className="mt-8" aria-labelledby="booking-step-heading">
+        <h3
+          className="text-2xl font-semibold tracking-tight outline-none"
+          id="booking-step-heading"
+          ref={stepHeadingRef}
+          tabIndex={-1}
+        >
+          {steps[currentStep]}
+        </h3>
 
-        {isLoadingSlots ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div className="h-11 animate-pulse rounded-2xl bg-white/70" key={index} />
-            ))}
-          </div>
-        ) : slots.length ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {slots.map((slot) => (
-              <label
-                className="flex cursor-pointer items-center justify-center rounded-2xl bg-white/70 px-4 py-3 text-sm font-medium ring-1 ring-foreground/10 has-[:checked]:bg-brand has-[:checked]:text-white has-[:checked]:ring-brand"
-                key={slot.startAt}
-              >
+        {currentStep === 0 ? (
+          <div className="mt-5 grid gap-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="stack gap-2">
+                <span className="text-sm font-medium">Service</span>
+                <select
+                  className="field"
+                  onChange={(event) => setSelectedServiceId(event.target.value)}
+                  value={selectedServiceId}
+                >
+                  {services.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name} ({service.durationMinutes} min)
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="stack gap-2">
+                <span className="text-sm font-medium">Date</span>
                 <input
-                  className="sr-only"
-                  checked={selectedStartAt === slot.startAt}
-                  onChange={(event) => {
-                    if (event.target.checked) {
-                      setSelectedStartAt(slot.startAt);
-                    }
-                  }}
-                  name="slotOption"
-                  type="radio"
-                  value={slot.startAt}
+                  className="field"
+                  max={dateOptions.at(-1)}
+                  min={dateOptions[0]}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                  required
+                  type="date"
+                  value={selectedDate}
                 />
-                {slot.label}
+              </label>
+            </div>
+
+            <fieldset aria-describedby={fieldErrors.time ? "time-error" : undefined}>
+              <legend className="text-sm font-medium">Available start time</legend>
+
+              {isLoadingSlots ? (
+                <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, index) => (
+                    <div className="h-11 animate-pulse rounded-2xl bg-white/70" key={index} />
+                  ))}
+                </div>
+              ) : null}
+
+              {!isLoadingSlots && slots.length ? (
+                <>
+                  <div className="mt-3 inline-flex rounded-full bg-surface-strong/70 p-1 ring-1 ring-foreground/5">
+                    {(["morning", "afternoon"] as const).map((period) => {
+                      const periodSlots = period === "morning" ? morningSlots : afternoonSlots;
+                      const isSelected = timePeriod === period;
+
+                      return (
+                        <button
+                          aria-pressed={isSelected}
+                          className={`rounded-full px-4 py-2 text-sm font-semibold capitalize ${
+                            isSelected ? "bg-white text-brand-strong shadow-sm" : "text-muted"
+                          }`}
+                          disabled={!periodSlots.length}
+                          key={period}
+                          onClick={() => setTimePeriod(period)}
+                          type="button"
+                        >
+                          {period} <span className="font-normal">({periodSlots.length})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
+                    {visibleSlots.map((slot) => {
+                      const isSelected = selectedStartAt === slot.startAt;
+
+                      return (
+                        <button
+                          aria-pressed={isSelected}
+                          className={`rounded-2xl px-3 py-3 text-sm font-medium ring-1 ${
+                            isSelected
+                              ? "bg-brand text-white ring-brand"
+                              : "bg-white/70 text-foreground ring-foreground/10 hover:bg-white"
+                          }`}
+                          key={slot.startAt}
+                          onClick={() => {
+                            setSelectedStartAt(slot.startAt);
+                            setFieldErrors((current) => ({ ...current, time: undefined }));
+                          }}
+                          type="button"
+                        >
+                          {slot.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
+
+              <span id="time-error">
+                <ErrorMessage>{fieldErrors.time}</ErrorMessage>
+              </span>
+              {availabilityError ? <p className="text-sm text-danger">{availabilityError}</p> : null}
+              {!isLoadingSlots && !availabilityError && !slots.length ? (
+                <p className="text-sm text-muted">Try another date to find an open appointment.</p>
+              ) : null}
+            </fieldset>
+
+            {selectedService ? (
+              <div className="rounded-2xl bg-surface-strong/60 p-4 text-sm ring-1 ring-foreground/5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{selectedService.name}</span>
+                  <span className="font-semibold">
+                    {formatCurrency(selectedService.depositAmount)} deposit ·{" "}
+                    {formatCurrency(selectedService.basePrice)} total
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {currentStep === 1 ? (
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {devPrefill ? (
+              <div className="md:col-span-2">
+                <button
+                  className="button-dev"
+                  onClick={() => {
+                    setValues((current) => applyBookingFormPrefill(current, devPrefill));
+                    setFieldErrors({});
+                  }}
+                  type="button"
+                >
+                  Dev Only: Use Sample Data
+                </button>
+              </div>
+            ) : null}
+            <label className="stack gap-2 md:col-span-2">
+              <span className="text-sm font-medium">Year, make, and model</span>
+              <input
+                aria-describedby={fieldErrors.vehicleDescription ? "vehicle-description-error" : undefined}
+                className="field"
+                onChange={(event) => updateValue("vehicleDescription", event.target.value)}
+                placeholder="2022 Toyota RAV4"
+                value={values.vehicleDescription}
+              />
+              <span id="vehicle-description-error">
+                <ErrorMessage>{fieldErrors.vehicleDescription}</ErrorMessage>
+              </span>
+            </label>
+            <label className="stack gap-2">
+              <span className="text-sm font-medium">Color <span className="text-muted">(optional)</span></span>
+              <input
+                className="field"
+                onChange={(event) => updateValue("color", event.target.value)}
+                placeholder="Pearl white"
+                value={values.color}
+              />
+            </label>
+            <label className="stack gap-2">
+              <span className="text-sm font-medium">License plate <span className="text-muted">(optional)</span></span>
+              <input
+                className="field"
+                onChange={(event) => updateValue("licensePlate", event.target.value)}
+                placeholder="8ABC123"
+                value={values.licensePlate}
+              />
+            </label>
+            <label className="stack gap-2 md:col-span-2">
+              <span className="text-sm font-medium">Notes <span className="text-muted">(optional)</span></span>
+              <textarea
+                className="field min-h-28 resize-y"
+                maxLength={500}
+                onChange={(event) => updateValue("notes", event.target.value)}
+                placeholder="Pet hair, child seats, extra mud..."
+                value={values.notes}
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {currentStep === 2 ? (
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {([
+              ["firstName", "First name", "Jordan", "text"],
+              ["lastName", "Last name", "Taylor", "text"],
+              ["email", "Email", "jordan@example.com", "email"],
+              ["phone", "Phone", "5551234567", "tel"],
+            ] as const).map(([key, label, placeholder, type]) => (
+              <label className="stack gap-2" key={key}>
+                <span className="text-sm font-medium">{label}</span>
+                <input
+                  aria-describedby={fieldErrors[key] ? `${key}-error` : undefined}
+                  autoComplete={key === "email" ? "email" : key === "phone" ? "tel" : key === "firstName" ? "given-name" : "family-name"}
+                  className="field"
+                  onChange={(event) => updateValue(key, event.target.value)}
+                  placeholder={placeholder}
+                  type={type}
+                  value={values[key]}
+                />
+                <span id={`${key}-error`}>
+                  <ErrorMessage>{fieldErrors[key]}</ErrorMessage>
+                </span>
               </label>
             ))}
           </div>
-        ) : (
-          <p className="text-sm text-muted">No slots are available for the selected date.</p>
-        )}
-      </div>
+        ) : null}
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        {devPrefill ? (
-          <div className="md:col-span-2">
-            <button
-              className="button-dev"
-              onClick={() => setValues((current) => applyBookingFormPrefill(current, devPrefill))}
-              type="button"
-            >
-              Dev Only: Use Sample Data
-            </button>
+        {currentStep === 3 ? (
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl bg-surface-strong/60 p-5 ring-1 ring-foreground/5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Appointment</p>
+                  <p className="mt-2 text-sm text-muted">{selectedService?.name}</p>
+                  <p className="text-sm text-muted">
+                    {formatSelectedDate(selectedDate)} at {selectedSlot?.label}
+                  </p>
+                </div>
+                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(0)} type="button">Edit</button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-surface-strong/60 p-5 ring-1 ring-foreground/5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Vehicle</p>
+                  <p className="mt-2 text-sm text-muted">{values.vehicleDescription}</p>
+                  <p className="text-sm text-muted">
+                    {values.color || "Color not provided"}
+                    {values.licensePlate ? ` · Plate ${values.licensePlate}` : ""}
+                  </p>
+                  {values.notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{values.notes}</p> : null}
+                </div>
+                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(1)} type="button">Edit</button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-surface-strong/60 p-5 ring-1 ring-foreground/5 md:col-span-2">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Contact</p>
+                  <p className="mt-2 text-sm text-muted">{values.firstName} {values.lastName}</p>
+                  <p className="text-sm text-muted">{values.email} · {values.phone}</p>
+                </div>
+                <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(2)} type="button">Edit</button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/70 p-5 ring-1 ring-foreground/10 md:col-span-2">
+              <p className="text-sm font-semibold">Payment summary</p>
+              <dl className="mt-3 grid gap-2 text-sm">
+                <div className="flex justify-between gap-4"><dt className="text-muted">Service total</dt><dd>{formatCurrency(selectedService?.basePrice ?? 0)}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted">Deposit due now</dt><dd className="font-semibold">{formatCurrency(selectedService?.depositAmount ?? 0)}</dd></div>
+                <div className="flex justify-between gap-4 border-t border-line pt-2"><dt className="text-muted">Remaining after deposit</dt><dd>{formatCurrency(balanceDue)}</dd></div>
+              </dl>
+            </div>
+
+            {state.status === "error" ? (
+              <p aria-live="polite" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">
+                {state.message}
+              </p>
+            ) : null}
           </div>
         ) : null}
-        <label className="stack">
-          <span className="text-sm font-medium">First name</span>
-          <input
-            className="field"
-            name="firstName"
-            onChange={(event) => setValues((current) => ({ ...current, firstName: event.target.value }))}
-            placeholder="Jordan"
-            required
-            value={values.firstName}
-          />
-        </label>
-        <label className="stack">
-          <span className="text-sm font-medium">Last name</span>
-          <input
-            className="field"
-            name="lastName"
-            onChange={(event) => setValues((current) => ({ ...current, lastName: event.target.value }))}
-            placeholder="Taylor"
-            required
-            value={values.lastName}
-          />
-        </label>
-        <label className="stack">
-          <span className="text-sm font-medium">Email</span>
-          <input
-            className="field"
-            name="email"
-            onChange={(event) => setValues((current) => ({ ...current, email: event.target.value }))}
-            placeholder="jordan@example.com"
-            required
-            value={values.email}
-          />
-        </label>
-        <label className="stack">
-          <span className="text-sm font-medium">Phone</span>
-          <input
-            className="field"
-            name="phone"
-            onChange={(event) => setValues((current) => ({ ...current, phone: event.target.value }))}
-            placeholder="5551234567"
-            required
-            value={values.phone}
-          />
-        </label>
-      </div>
+      </section>
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <label className="stack">
-          <span className="text-sm font-medium">Vehicle make</span>
-          <input
-            className="field"
-            name="make"
-            onChange={(event) => setValues((current) => ({ ...current, make: event.target.value }))}
-            placeholder="Toyota"
-            required
-            value={values.make}
-          />
-        </label>
-        <label className="stack">
-          <span className="text-sm font-medium">Vehicle model</span>
-          <input
-            className="field"
-            name="model"
-            onChange={(event) => setValues((current) => ({ ...current, model: event.target.value }))}
-            placeholder="RAV4"
-            required
-            value={values.model}
-          />
-        </label>
-        <label className="stack">
-          <span className="text-sm font-medium">Year</span>
-          <input
-            className="field"
-            name="year"
-            onChange={(event) => setValues((current) => ({ ...current, year: event.target.value }))}
-            placeholder="2022"
-            value={values.year}
-          />
-        </label>
-        <label className="stack">
-          <span className="text-sm font-medium">Color</span>
-          <input
-            className="field"
-            name="color"
-            onChange={(event) => setValues((current) => ({ ...current, color: event.target.value }))}
-            placeholder="Pearl white"
-            value={values.color}
-          />
-        </label>
-        <label className="stack md:col-span-2">
-          <span className="text-sm font-medium">License plate</span>
-          <input
-            className="field"
-            name="licensePlate"
-            onChange={(event) =>
-              setValues((current) => ({ ...current, licensePlate: event.target.value }))
-            }
-            placeholder="8ABC123"
-            value={values.licensePlate}
-          />
-        </label>
-      </div>
+      <div className="mt-8 flex flex-col-reverse gap-3 border-t border-foreground/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
+        {currentStep > 0 ? (
+          <button className="button-secondary" onClick={() => goToStep((currentStep - 1) as StepIndex)} type="button">
+            Back
+          </button>
+        ) : <span />}
 
-      <label className="stack mt-5">
-        <span className="text-sm font-medium">Notes</span>
-        <textarea
-          className="field min-h-28 resize-y"
-          name="notes"
-          onChange={(event) => setValues((current) => ({ ...current, notes: event.target.value }))}
-          placeholder="Pet hair, child seats, extra mud..."
-          value={values.notes}
-        />
-      </label>
-
-      {state.status === "error" ? (
-        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {state.message}
-        </p>
-      ) : null}
-
-      <div className="mt-5 flex flex-col gap-3 border-t border-foreground/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm leading-6 text-muted">
-          Deposit is charged now through Stripe. Any remaining balance stays outstanding on the
-          booking until it is collected later.
-        </p>
-        <SubmitButton>Continue to deposit payment</SubmitButton>
+        {currentStep < 3 ? (
+          <button className="button-primary" onClick={continueToNextStep} type="button">
+            Continue
+          </button>
+        ) : (
+          <SubmitButton>Continue to deposit payment</SubmitButton>
+        )}
       </div>
     </form>
   );

@@ -110,7 +110,7 @@ function BookingCard({
           {formatBusinessTime(booking.startAt)} - {booking.service.name}
         </p>
         <p className="text-muted">
-          {booking.firstName} {booking.lastName} | {booking.vehicleMake} {booking.vehicleModel}
+          {booking.firstName} {booking.lastName} | {booking.vehicleDescription}
         </p>
         <p className="text-muted">
           Status {booking.status} / Payment {booking.paymentStatus}
@@ -146,10 +146,7 @@ function BookingCard({
 
           <div className="space-y-1">
             <p className="font-semibold">Vehicle</p>
-            <p className="text-muted">
-              {booking.vehicleYear ? `${booking.vehicleYear} ` : ""}
-              {booking.vehicleMake} {booking.vehicleModel}
-            </p>
+            <p className="text-muted">{booking.vehicleDescription}</p>
             <p className="text-muted">
               {booking.vehicleColor || "Color not provided"}
               {booking.vehicleLicensePlate ? ` | Plate ${booking.vehicleLicensePlate}` : ""}

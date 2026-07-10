@@ -30,15 +30,7 @@ export const bookingSchema = z.object({
   lastName: z.string().min(2, "Enter a last name."),
   email: z.email("Enter a valid email."),
   phone: z.string().min(10, "Enter a valid phone number."),
-  make: z.string().min(2, "Enter a vehicle make."),
-  model: z.string().min(1, "Enter a vehicle model."),
-  year: z
-    .string()
-    .optional()
-    .transform((value) => (value ? Number(value) : undefined))
-    .refine((value) => value === undefined || (value >= 1980 && value <= 2100), {
-      message: "Enter a valid year.",
-    }),
+  vehicleDescription: z.string().trim().min(3, "Enter the vehicle year, make, and model."),
   color: z.string().optional(),
   licensePlate: z.string().optional(),
   notes: z.string().max(500).optional(),

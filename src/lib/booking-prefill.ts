@@ -14,21 +14,7 @@ const bookingFormPrefillSchema = z.object({
   lastName: z.string().trim().min(1).default(""),
   email: z.string().trim().default(""),
   phone: z.string().trim().default(""),
-  make: z.string().trim().default(""),
-  model: z.string().trim().default(""),
-  year: z
-    .union([z.string(), z.number()])
-    .optional()
-    .transform((value) => {
-      if (value === undefined || value === null || value === "") {
-        return "";
-      }
-
-      return String(value).trim();
-    })
-    .refine((value) => value === "" || /^\d{4}$/.test(value), {
-      message: "Year must be a four-digit string.",
-    }),
+  vehicleDescription: z.string().trim().default(""),
   color: z.string().trim().default(""),
   licensePlate: z.string().trim().default(""),
   notes: z.string().trim().default(""),
@@ -41,8 +27,7 @@ const requiredPrefillKeys: Array<keyof BookingFormPrefill> = [
   "lastName",
   "email",
   "phone",
-  "make",
-  "model",
+  "vehicleDescription",
 ];
 
 export const emptyBookingFormPrefill: BookingFormPrefill = {
@@ -50,9 +35,7 @@ export const emptyBookingFormPrefill: BookingFormPrefill = {
   lastName: "",
   email: "",
   phone: "",
-  make: "",
-  model: "",
-  year: "",
+  vehicleDescription: "",
   color: "",
   licensePlate: "",
   notes: "",

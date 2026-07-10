@@ -68,9 +68,7 @@ model Booking {
   lastName                String
   email                   String
   phone                   String
-  vehicleMake             String
-  vehicleModel            String
-  vehicleYear             Int?
+  vehicleDescription      String
   vehicleColor            String?
   vehicleLicensePlate     String?
   customerNotes           String?
