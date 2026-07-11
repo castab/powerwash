@@ -112,8 +112,8 @@ Admin screens should share the same visual language as the rest of the applicati
 ### Customer Booking Flow
 
 1. Customer opens `/` to browse active services.
-2. Customer opens `/book`, which renders a five-step flow for service, appointment, vehicle, contact, and review.
-3. The service step selects the wash package; the separate appointment step uses a date input constrained to the booking window, then calls `/api/availability?serviceId=...&date=...` to populate morning and afternoon time choices.
+2. Customer opens `/book`, which renders a five-step flow for service, appointment, vehicle, contact, and review. Each step's Continue button remains disabled until its required fields are valid; the service step also waits for a selected address's service-area check and stays disabled when the address is outside the configured area.
+3. The service step selects the wash package; the separate appointment step presents the booking window as a horizontally scrollable date strip with Today/Tomorrow, weekday, and month/day labels, then calls `/api/availability?serviceId=...&date=...` to populate morning and afternoon time choices.
 4. The customer reviews the reservation and submits it to `createBookingCheckoutAction`.
 5. The server validates input with `bookingSchema`.
 6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 35 minutes in the future.

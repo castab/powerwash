@@ -45,8 +45,7 @@ const emptyAddressMeta: AddressMeta = {
 // Early serviceability feedback from /api/service-area. Advisory only — the
 // booking server action re-runs the authoritative check at submit time.
 type ServiceAreaFeedback = {
-  status: "unknown" | "eligible" | "ineligible";
-  travelMinutes?: number;
+  status: "unknown" | "checking" | "eligible" | "ineligible";
   forAddress: string;
 };
 
@@ -63,14 +62,25 @@ export type BookingFormService = {
   depositAmount: string;
 };
 
+function parseDateValue(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatDateValue(date: string, options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options }).format(
+    parseDateValue(date),
+  );
+}
+
 function formatSelectedDate(date: string) {
   if (!date) return "Not selected";
 
-  return new Intl.DateTimeFormat("en-US", {
+  return formatDateValue(date, {
     weekday: "long",
     month: "long",
     day: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
+  });
 }
 
 function getSlotPeriod(slot: { label: string }): TimePeriod {
@@ -127,6 +137,21 @@ export function BookingForm({
   const balanceDue = selectedService
     ? Math.max(Number(selectedService.basePrice) - Number(selectedService.depositAmount), 0)
     : 0;
+  const trimmedAddress = values.address.trim();
+  const serviceAreaBlocksProgress =
+    serviceArea.forAddress === trimmedAddress &&
+    (serviceArea.status === "checking" || serviceArea.status === "ineligible");
+  const completedSteps: boolean[] = [
+    Boolean(selectedService && trimmedAddress.length >= 5 && !serviceAreaBlocksProgress),
+    Boolean(selectedDate && selectedStartAt),
+    values.vehicleDescription.trim().length >= 3,
+    values.firstName.trim().length >= 2 &&
+      values.lastName.trim().length >= 2 &&
+      /^\S+@\S+\.\S+$/.test(values.email.trim()) &&
+      values.phone.trim().length >= 10,
+  ];
+  const isCurrentStepComplete = currentStep < 4 ? completedSteps[currentStep] : true;
+  const areAllStepsComplete = completedSteps.every(Boolean);
 
   useEffect(() => {
     let isCancelled = false;
@@ -184,6 +209,8 @@ export function BookingForm({
     const checkedAddress = values.address.trim();
     let isCancelled = false;
 
+    setServiceArea({ status: "checking", forAddress: checkedAddress });
+
     async function checkServiceArea() {
       try {
         const response = await fetch("/api/service-area", {
@@ -201,17 +228,13 @@ export function BookingForm({
           throw new Error("Service area pre-check failed.");
         }
 
-        const data = (await response.json()) as {
-          status: string;
-          travelMinutes?: number;
-        };
+        const data = (await response.json()) as { status: string };
 
         if (isCancelled) return;
 
         if (data.status === "eligible" || data.status === "ineligible") {
           setServiceArea({
             status: data.status,
-            travelMinutes: data.travelMinutes,
             forAddress: checkedAddress,
           });
         } else {
@@ -258,6 +281,11 @@ export function BookingForm({
 
   function handleAddressChange(next: AddressValue) {
     updateValue("address", next.formattedAddress);
+    setServiceArea(
+      next.validated
+        ? { status: "checking", forAddress: next.formattedAddress.trim() }
+        : unknownServiceArea,
+    );
     setAddressMeta({
       placeId: next.placeId ?? "",
       lat: next.lat !== undefined ? String(next.lat) : "",
@@ -430,17 +458,13 @@ export function BookingForm({
                 value={addressValue}
               />
               {!fieldErrors.address &&
-              serviceArea.status !== "unknown" &&
+              (serviceArea.status === "eligible" || serviceArea.status === "ineligible") &&
               serviceArea.forAddress === values.address.trim() ? (
                 <p
                   className={`mt-2 text-sm ${serviceArea.status === "eligible" ? "text-emerald-700" : "text-danger"}`}
                 >
                   {serviceArea.status === "eligible"
-                    ? `Great news — you're in our service area${
-                        serviceArea.travelMinutes !== undefined
-                          ? ` (about ${serviceArea.travelMinutes} min from us)`
-                          : ""
-                      }.`
+                    ? "Great news — you're in our service area."
                     : OUT_OF_AREA_MESSAGE}
                 </p>
               ) : null}
@@ -449,48 +473,73 @@ export function BookingForm({
         ) : null}
 
         {currentStep === 1 ? (
-          <div className="mt-5 rounded-[1.75rem] bg-surface-strong/40 p-4 ring-1 ring-foreground/5 sm:p-5">
-            <div className="grid gap-4 md:grid-cols-[minmax(16rem,1fr)_auto] md:items-end">
-              <label className="stack gap-2">
-                <span className="text-sm font-medium">Date</span>
-                <input
-                  className="field"
-                  max={dateOptions.at(-1)}
-                  min={dateOptions[0]}
-                  onChange={(event) => setSelectedDate(event.target.value)}
-                  required
-                  type="date"
-                  value={selectedDate}
-                />
-              </label>
+          <div className="mt-5 min-w-0 overflow-hidden rounded-[1.75rem] bg-surface-strong/40 p-4 ring-1 ring-foreground/5 sm:p-5">
+            <fieldset className="min-w-0">
+              <legend className="text-sm font-medium">Choose a date</legend>
+              <div className="mt-3 flex w-full max-w-full snap-x gap-2 overflow-x-auto pb-3">
+                {dateOptions.map((date, index) => {
+                  const isSelected = selectedDate === date;
+                  const relativeLabel = index === 0 ? "Today" : index === 1 ? "Tomorrow" : null;
 
-              {!isLoadingSlots && slots.length ? (
-                <fieldset>
-                  <legend className="text-sm font-medium">Time of day</legend>
-                  <div className="mt-2 inline-flex rounded-full bg-white/60 p-1 ring-1 ring-foreground/5">
-                    {(["morning", "afternoon"] as const).map((period) => {
-                      const periodSlots = period === "morning" ? morningSlots : afternoonSlots;
-                      const isSelected = timePeriod === period;
+                  return (
+                    <button
+                      aria-label={formatDateValue(date, {
+                        weekday: "long",
+                        month: "long",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                      aria-pressed={isSelected}
+                      className={`min-w-24 snap-start rounded-2xl px-3 py-3 text-center ring-1 transition-colors ${
+                        isSelected
+                          ? "bg-brand text-white ring-brand"
+                          : "bg-white/80 text-foreground ring-foreground/10 hover:bg-white"
+                      }`}
+                      key={date}
+                      onClick={() => setSelectedDate(date)}
+                      type="button"
+                    >
+                      <span className={`block h-4 text-[0.65rem] font-semibold uppercase tracking-wide ${isSelected ? "text-white/80" : "text-brand-strong"}`}>
+                        {relativeLabel ?? ""}
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold">
+                        {formatDateValue(date, { weekday: "short" })}
+                      </span>
+                      <span className={`mt-0.5 block text-xs ${isSelected ? "text-white/85" : "text-muted"}`}>
+                        {formatDateValue(date, { month: "short", day: "numeric" })}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
 
-                      return (
-                        <button
-                          aria-pressed={isSelected}
-                          className={`rounded-full px-4 py-2 text-sm font-semibold capitalize ${
-                            isSelected ? "bg-white text-brand-strong shadow-sm" : "text-muted"
-                          }`}
-                          disabled={!periodSlots.length}
-                          key={period}
-                          onClick={() => setTimePeriod(period)}
-                          type="button"
-                        >
-                          {period} <span className="font-normal">({periodSlots.length})</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </fieldset>
-              ) : null}
-            </div>
+            {!isLoadingSlots && slots.length ? (
+              <fieldset className="mt-2">
+                <legend className="text-sm font-medium">Time of day</legend>
+                <div className="mt-2 inline-flex rounded-full bg-white/60 p-1 ring-1 ring-foreground/5">
+                  {(["morning", "afternoon"] as const).map((period) => {
+                    const periodSlots = period === "morning" ? morningSlots : afternoonSlots;
+                    const isSelected = timePeriod === period;
+
+                    return (
+                      <button
+                        aria-pressed={isSelected}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold capitalize ${
+                          isSelected ? "bg-white text-brand-strong shadow-sm" : "text-muted"
+                        }`}
+                        disabled={!periodSlots.length}
+                        key={period}
+                        onClick={() => setTimePeriod(period)}
+                        type="button"
+                      >
+                        {period} <span className="font-normal">({periodSlots.length})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            ) : null}
 
             <fieldset
               aria-describedby={fieldErrors.time ? "time-error" : undefined}
@@ -711,11 +760,16 @@ export function BookingForm({
         ) : <span />}
 
         {currentStep < 4 ? (
-          <button className="button-primary" onClick={continueToNextStep} type="button">
+          <button
+            className="button-primary"
+            disabled={!isCurrentStepComplete}
+            onClick={continueToNextStep}
+            type="button"
+          >
             Continue
           </button>
         ) : (
-          <SubmitButton>Continue to deposit payment</SubmitButton>
+          <SubmitButton disabled={!areAllStepsComplete}>Continue to deposit payment</SubmitButton>
         )}
       </div>
     </form>
