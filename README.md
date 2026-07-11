@@ -420,6 +420,8 @@ Copy `.env.example` to `.env` for local development. Update `.env.example` whene
 | `RESEND_API_KEY` | Yes for email | Resend API key for transactional emails. |
 | `EMAIL_FROM` | Yes for email | Sender used for customer booking emails. |
 | `SUPPORT_EMAIL` | Yes in deploy scripts | Contact address included in booking emails. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Optional | Browser key for Google Maps JavaScript API + Places API (New) address autocomplete. When unset, the address field degrades to plain manual entry. Also used as the server-side Routes API fallback key, which only works when the key is restricted by API (Maps JavaScript, Places (New), Routes) rather than by HTTP referrer — referrer-restricted keys reject server-to-server calls. Set a billing cap in the Google Cloud console. |
+| `GOOGLE_MAPS_SERVER_API_KEY` | Optional | Separate server key for the Routes API travel-time check. Set this when the browser key is referrer-restricted. When neither key allows server calls, service-area checks fail and bookings are blocked with a retry message while the service area is configured — clear the service-area settings in the admin console to disable the gate. |
 | `SEED_ADMIN_EMAIL` | Optional | Seed admin login email. Defaults to `admin@example.com`. |
 | `SEED_ADMIN_PASSWORD` | Required in production seed | Seed admin login password. Defaults to `ChangeMe123!` in local development. In production the seed script throws when this is unset or still the default, so a public deploy cannot bootstrap the admin with the documented password. |
 | `CONFIRMATION_RECONCILE_DEBOUNCE_MS` | Optional | Debounce window for confirmation-page Stripe reconciliation. Defaults to `30000`. |

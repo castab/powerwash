@@ -46,6 +46,8 @@ async function main() {
   requireEnv("RESEND_API_KEY");
   requireEnv("EMAIL_FROM");
   requireEnv("SUPPORT_EMAIL");
+  // NEXT_PUBLIC_GOOGLE_MAPS_API_KEY / GOOGLE_MAPS_SERVER_API_KEY are intentionally
+  // not required: address autocomplete and service-area checks degrade when unset.
 
   log("Generating Prisma client");
   runNpmScript("prisma:generate");

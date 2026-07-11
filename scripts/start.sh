@@ -46,6 +46,8 @@ require_env STRIPE_WEBHOOK_SECRET
 require_env RESEND_API_KEY
 require_env EMAIL_FROM
 require_env SUPPORT_EMAIL
+# NEXT_PUBLIC_GOOGLE_MAPS_API_KEY / GOOGLE_MAPS_SERVER_API_KEY are intentionally
+# not required: address autocomplete and service-area checks degrade when unset.
 
 if [ ! -f "src/generated/prisma/client.ts" ]; then
   log "Prisma client not found, generating"
