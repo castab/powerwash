@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/generated/prisma/client";
 import { createHeldBooking, releaseHeldBooking } from "@/lib/booking";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
+import { verifyBookingFormToken } from "@/lib/booking-form-token";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 import { getEnv } from "@/lib/env";
 import {
   canAutoRefundBooking,
@@ -28,11 +30,28 @@ import { getRequestOrigin } from "@/lib/request-origin";
 import { formatCurrency, toStripeCents } from "@/lib/utils";
 
 export type BookingActionState = {
-  status: "idle" | "error";
+  // "success" is only ever a *feigned* completion returned to a detected bot
+  // (honeypot filled / impossibly fast submit); genuine customers are redirected
+  // to Stripe and never see it. It creates no booking, hold, or Stripe session.
+  status: "idle" | "error" | "success";
   message: string;
   // Address-related rejections carry a code so the wizard can jump the customer
   // back to the address field instead of leaving the error on the review step.
   code?: "out_of_area" | "address_not_found" | "service_area_unavailable";
+};
+
+// Anti-bot bounds for the signed booking-form token: a booking that reaches the
+// review step took far longer than a few seconds to fill, so a submit younger
+// than MIN is scripted; MAX bounds how long a rendered form stays valid.
+const BOOKING_FORM_TOKEN_MIN_AGE_MS = 3_000;
+const BOOKING_FORM_TOKEN_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+
+// Returned to a detected bot so the automated flow "succeeds" without touching
+// the DB or Stripe — no slot is held and no signal is given that it was caught.
+const FEIGNED_SUCCESS: BookingActionState = {
+  status: "success",
+  message:
+    "Thanks! Your request has been received. Check your email for confirmation details.",
 };
 
 // Per-instance, in-memory debounce for confirmation-page reconciliation. This is
@@ -233,6 +252,36 @@ export async function createBookingCheckoutAction(
   _prevState: BookingActionState,
   formData: FormData,
 ): Promise<BookingActionState> {
+  // Anti-bot gate — runs before any validation, hold, or Stripe session so a
+  // detected bot never blocks a slot. Layers: (1) honeypot decoy field, (2) a
+  // signed proof-of-render token that also enforces a minimum fill time, and
+  // (3) Cloudflare Turnstile (checked after the rate limit, below). Naive bots
+  // are fed a feigned success so they don't learn they were caught.
+  const honeypot = formData.get("company");
+  if (typeof honeypot === "string" && honeypot.trim().length > 0) {
+    return FEIGNED_SUCCESS;
+  }
+
+  const tokenResult = verifyBookingFormToken(
+    formData.get("formToken"),
+    getEnv().bookingFormSecret,
+    {
+      minAgeMs: BOOKING_FORM_TOKEN_MIN_AGE_MS,
+      maxAgeMs: BOOKING_FORM_TOKEN_MAX_AGE_MS,
+    },
+  );
+  if (!tokenResult.ok) {
+    // An impossibly fast submit is a bot — feign success. Missing/forged/expired
+    // tokens are more likely a stale tab or a crafted request; ask to refresh.
+    if (tokenResult.reason === "too_fast") {
+      return FEIGNED_SUCCESS;
+    }
+    return {
+      status: "error",
+      message: "Your booking session expired. Please refresh the page and try again.",
+    };
+  }
+
   const parsed = bookingSchema.safeParse({
     serviceId: formData.get("serviceId"),
     date: formData.get("date"),
@@ -268,6 +317,16 @@ export async function createBookingCheckoutAction(
     return {
       status: "error",
       message: "Too many booking attempts. Please wait a moment and try again.",
+    };
+  }
+
+  // Cloudflare Turnstile — the final bot gate before the paid service-area check
+  // and the DB hold. Skipped automatically when no secret is configured.
+  const turnstile = await verifyTurnstileToken(formData.get("turnstileToken"), ip);
+  if (!turnstile.ok) {
+    return {
+      status: "error",
+      message: "We couldn't verify that you're human. Please complete the check and try again.",
     };
   }
 

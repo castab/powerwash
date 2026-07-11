@@ -1,6 +1,7 @@
 import { getPublicServices } from "@/lib/booking";
 import { addDaysToDateValue, getBusinessDateValue } from "@/lib/business-time";
-import { getDevBookingPrefill } from "@/lib/env";
+import { createBookingFormToken } from "@/lib/booking-form-token";
+import { getDevBookingPrefill, getEnv } from "@/lib/env";
 import { SiteHeader } from "@/components/layout/site-header";
 import { BookingForm } from "@/components/booking/booking-form";
 
@@ -25,6 +26,12 @@ export default async function BookPage() {
     depositAmount: service.depositAmount.toString(),
   }));
 
+  // Anti-bot: mint a fresh signed token on every render (the page is
+  // force-dynamic) and expose the public Turnstile site key. Turnstile is
+  // optional — an empty key means the widget and server check are skipped.
+  const formToken = createBookingFormToken(getEnv().bookingFormSecret);
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+
   return (
     <div className="flow-page">
       <SiteHeader />
@@ -36,7 +43,13 @@ export default async function BookPage() {
             Reserve with a deposit today. The remaining balance is collected after the service is complete.
           </p>
         </section>
-        <BookingForm dateOptions={dateOptions} devPrefill={devPrefill} services={serializedServices} />
+        <BookingForm
+          dateOptions={dateOptions}
+          devPrefill={devPrefill}
+          formToken={formToken}
+          services={serializedServices}
+          turnstileSiteKey={turnstileSiteKey}
+        />
       </main>
     </div>
   );
