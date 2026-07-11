@@ -34,6 +34,7 @@ import {
   availabilitySchema,
   blackoutSchema,
   bookingAdminUpdateSchema,
+  businessSettingsSchema,
   requestBookingBalanceSchema,
   serviceSchema,
 } from "@/lib/validators";
@@ -652,6 +653,68 @@ export async function requestBookingBalanceAction(
   revalidatePath("/booking/manage");
 
   return { success: "Remaining balance request sent." };
+}
+
+export async function updateBusinessSettingsAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireAdmin();
+
+  const parsed = businessSettingsSchema.safeParse({
+    originAddress: formData.get("originAddress"),
+    originPlaceId: formData.get("originPlaceId") ?? undefined,
+    originLat: formData.get("originLat") ?? undefined,
+    originLng: formData.get("originLng") ?? undefined,
+    maxTravelMinutes: formData.get("maxTravelMinutes"),
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid service area settings." };
+  }
+
+  const data = {
+    originFormattedAddress: parsed.data.originAddress,
+    originPlaceId: parsed.data.originPlaceId ?? null,
+    originLat: parsed.data.originLat ?? null,
+    originLng: parsed.data.originLng ?? null,
+    maxTravelMinutes: parsed.data.maxTravelMinutes,
+  };
+
+  // Saving bumps the row's updatedAt, which implicitly invalidates every
+  // per-address eligibility memo (they compare against it for freshness).
+  await prisma.businessSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1, ...data },
+    update: data,
+  });
+
+  revalidatePath("/admin/settings");
+
+  return { success: "Service area settings saved." };
+}
+
+// Clearing the settings disables the service-area gate entirely — the booking
+// flow skips the travel-time check when unconfigured. This is also the manual
+// escape hatch if Google Routes has an outage and bookings are being blocked.
+export async function clearBusinessSettingsAction(): Promise<AdminActionState> {
+  await requireAdmin();
+
+  await prisma.businessSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: {
+      originFormattedAddress: null,
+      originPlaceId: null,
+      originLat: null,
+      originLng: null,
+      maxTravelMinutes: null,
+    },
+  });
+
+  revalidatePath("/admin/settings");
+
+  return { success: "Service area settings cleared. Bookings are no longer distance-checked." };
 }
 
 export async function archiveBookingAction(

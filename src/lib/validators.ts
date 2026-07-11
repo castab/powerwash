@@ -106,6 +106,23 @@ export const blackoutSchema = z
     path: ["endsAt"],
   });
 
+export const businessSettingsSchema = z.object({
+  originAddress: z.string().trim().min(5, "Enter the business origin address."),
+  originPlaceId: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .transform((value) => value || undefined),
+  originLat: optionalCoordinate(90),
+  originLng: optionalCoordinate(180),
+  maxTravelMinutes: z.coerce
+    .number()
+    .int("Enter a whole number of minutes.")
+    .min(5, "Max travel time must be at least 5 minutes.")
+    .max(600, "Max travel time cannot exceed 600 minutes."),
+});
+
 export const bookingAdminUpdateSchema = z.object({
   bookingId: z.string().min(1),
   status: z.enum(["CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"]).optional(),
