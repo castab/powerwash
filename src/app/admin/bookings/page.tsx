@@ -110,7 +110,7 @@ function BookingCard({
           {formatBusinessTime(booking.startAt)} - {booking.service.name}
         </p>
         <p className="text-muted">
-          {booking.firstName} {booking.lastName} | {booking.vehicleDescription}
+          {booking.customer.firstName} {booking.customer.lastName} | {booking.vehicle.description}
         </p>
         <p className="text-muted">
           Status {booking.status} / Payment {booking.paymentStatus}
@@ -140,16 +140,27 @@ function BookingCard({
         <div className="grid min-w-0 gap-4 text-sm sm:grid-cols-2">
           <div className="space-y-1">
             <p className="font-semibold">Contact</p>
-            <p className="text-muted">{booking.phone}</p>
-            <p className="text-muted break-all">{booking.email}</p>
+            <p className="text-muted">{booking.customer.phone}</p>
+            <p className="text-muted break-all">{booking.customer.email}</p>
           </div>
 
           <div className="space-y-1">
             <p className="font-semibold">Vehicle</p>
-            <p className="text-muted">{booking.vehicleDescription}</p>
+            <p className="text-muted">{booking.vehicle.description}</p>
             <p className="text-muted">
-              {booking.vehicleColor || "Color not provided"}
-              {booking.vehicleLicensePlate ? ` | Plate ${booking.vehicleLicensePlate}` : ""}
+              {booking.vehicle.color || "Color not provided"}
+              {booking.vehicle.licensePlate ? ` | Plate ${booking.vehicle.licensePlate}` : ""}
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="font-semibold">Service address</p>
+            <p className="text-muted">{booking.serviceAddress.formattedAddress}</p>
+            <p className="text-muted">
+              {booking.travelDurationSecondsAtBooking !== null
+                ? `~${Math.round(booking.travelDurationSecondsAtBooking / 60)} min drive`
+                : "Travel time not checked"}
+              {!booking.serviceAddress.validated ? " | Unverified address" : ""}
             </p>
           </div>
 

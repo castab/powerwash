@@ -62,16 +62,77 @@ model Service {
   updatedAt       DateTime  @updatedAt
 }
 
+model Customer {
+  id                   String            @id @default(cuid())
+  email                String            @unique
+  firstName            String
+  lastName             String
+  phone                String
+  manageTokenVersion   Int               @default(0)
+  manageTokenRotatedAt DateTime?
+  vehicles             Vehicle[]
+  addresses            CustomerAddress[]
+  bookings             Booking[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+}
+
+model Vehicle {
+  id           String    @id @default(cuid())
+  customerId   String
+  description  String
+  color        String?
+  licensePlate String?
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  bookings     Booking[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([customerId])
+}
+
+model CustomerAddress {
+  id               String  @id @default(cuid())
+  customerId       String
+  formattedAddress String
+  googlePlaceId    String?
+  lat              Decimal? @db.Decimal(9, 6)
+  lng              Decimal? @db.Decimal(9, 6)
+  rawComponents    Json?
+  // True only when the address came from a Places selection with geometry;
+  // manual/free-text entries stay false so admins can spot unverified addresses.
+  validated        Boolean @default(false)
+  // Service-eligibility memo. Fresh iff eligibilityCheckedAt >= the
+  // BusinessSettings row's updatedAt — saving settings invalidates every memo.
+  travelDurationSeconds Int?
+  serviceEligible       Boolean?
+  eligibilityCheckedAt  DateTime?
+  customer         Customer  @relation(fields: [customerId], references: [id])
+  bookings         Booking[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([customerId])
+}
+
+// Singleton row (id = 1, enforced by a CHECK constraint in the migration).
+model BusinessSettings {
+  id                     Int      @id @default(1)
+  originFormattedAddress String?
+  originPlaceId          String?
+  originLat              Decimal? @db.Decimal(9, 6)
+  originLng              Decimal? @db.Decimal(9, 6)
+  maxTravelMinutes       Int?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
 model Booking {
   id                      String        @id @default(cuid())
   serviceId               String
-  firstName               String
-  lastName                String
-  email                   String
-  phone                   String
-  vehicleDescription      String
-  vehicleColor            String?
-  vehicleLicensePlate     String?
+  customerId              String
+  vehicleId               String
+  serviceAddressId        String
   customerNotes           String?
   startAt                 DateTime
   endAt                   DateTime
@@ -80,14 +141,15 @@ model Booking {
   totalPrice              Decimal       @db.Decimal(10, 2)
   depositAmount           Decimal       @db.Decimal(10, 2)
   balanceDue              Decimal       @db.Decimal(10, 2)
+  // Travel time measured when this booking passed the service-area gate; null
+  // when the gate was skipped (service area unconfigured).
+  travelDurationSecondsAtBooking Int?
   stripeCheckoutSessionId String?       @unique
   stripePaymentIntentId   String?       @unique
   adminNotes              String?
   paymentExpiresAt        DateTime?
   confirmedAt             DateTime?
   cancelledAt             DateTime?
-  manageTokenVersion      Int           @default(0)
-  manageTokenRotatedAt    DateTime?
   manageLinkSentAt        DateTime?
   recoveryEmailSentAt     DateTime?
   refundAmount            Decimal?      @db.Decimal(10, 2)
@@ -106,6 +168,9 @@ model Booking {
   archivedByAdminUserId   String?
   customerAccessEndsAt    DateTime?
   service                 Service       @relation(fields: [serviceId], references: [id])
+  customer                Customer        @relation(fields: [customerId], references: [id])
+  vehicle                 Vehicle         @relation(fields: [vehicleId], references: [id])
+  serviceAddress          CustomerAddress @relation(fields: [serviceAddressId], references: [id])
   archivedByAdminUser     AdminUser?    @relation("ArchivedBookings", fields: [archivedByAdminUserId], references: [id])
   events                  BookingEvent[]
   createdAt               DateTime      @default(now())
@@ -114,6 +179,7 @@ model Booking {
   @@index([startAt, endAt])
   @@index([status, paymentStatus])
   @@index([archivedAt, startAt])
+  @@index([customerId, archivedAt])
 }
 
 model BookingEvent {

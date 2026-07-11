@@ -92,6 +92,13 @@ export function getEnv() {
     ),
     emailFrom,
     supportEmail,
+    // Optional: service-area features degrade gracefully when unset. Falls back
+    // to the browser key, which only works when that key is API-restricted
+    // rather than referrer-restricted (server calls send no referrer header).
+    googleMapsServerApiKey:
+      process.env.GOOGLE_MAPS_SERVER_API_KEY ||
+      process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+      "",
   };
 }
 

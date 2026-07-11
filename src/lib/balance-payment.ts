@@ -8,6 +8,7 @@ const EMAIL_CHANNEL: BalanceRequestDeliveryChannel = "EMAIL";
 export type BalancePaymentBooking = Prisma.BookingGetPayload<{
   include: {
     service: true;
+    customer: true;
   };
 }>;
 
@@ -37,7 +38,7 @@ function buildBalancePaymentEmail(booking: BalancePaymentBooking, checkoutUrl: s
   return {
     subject: `Pay the remaining balance for your ${booking.service.name} booking`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `Your ${booking.service.name} booking for ${serviceDate} still has a remaining balance of ${formatCurrency(booking.balanceDue)}.`,
       "Use the secure payment link below to complete the rest of the payment:",
@@ -50,7 +51,7 @@ function buildBalancePaymentEmail(booking: BalancePaymentBooking, checkoutUrl: s
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> still has a remaining balance of <strong>${formatCurrency(booking.balanceDue)}</strong>.</p>
         <p>Use the secure payment link below to complete the rest of the payment:</p>
         <p><a href="${checkoutUrl}">${checkoutUrl}</a></p>
@@ -68,14 +69,14 @@ async function sendBalancePaymentEmail({
   const email = buildBalancePaymentEmail(booking, checkoutUrl);
 
   await sendEmail({
-    to: booking.email,
+    to: booking.customer.email,
     subject: email.subject,
     html: email.html,
     text: email.text,
   });
 
   return {
-    destination: booking.email,
+    destination: booking.customer.email,
   };
 }
 

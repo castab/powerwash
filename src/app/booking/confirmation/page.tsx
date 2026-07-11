@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { BookingStatus, PaymentStatus } from "@/generated/prisma/browser";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
-import { getManagementUrlForBooking, getSupportEmail } from "@/lib/booking-management";
+import { getSupportEmail } from "@/lib/booking-management";
 import { formatBusinessDateLong, formatBusinessTime, formatCurrency } from "@/lib/utils";
 import { ConfirmationFinalizer } from "./confirmation-finalizer";
 
@@ -14,6 +14,18 @@ type Props = {
     session_id?: string;
   }>;
 };
+
+// Shown on screen to whoever completed checkout, so never render the full
+// address the secure link went to — only enough for the customer to recognize it.
+function maskEmail(email: string) {
+  const [local, domain] = email.split("@");
+
+  if (!local || !domain) {
+    return "your email address";
+  }
+
+  return `${local[0]}${"•".repeat(Math.max(local.length - 1, 2))}@${domain}`;
+}
 
 export default async function BookingConfirmationPage({ searchParams }: Props) {
   const { session_id: sessionId } = await searchParams;
@@ -35,6 +47,8 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
     where: { id: bookingId },
     include: {
       service: true,
+      customer: true,
+      vehicle: true,
     },
   });
 
@@ -42,7 +56,6 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
     notFound();
   }
 
-  const manageUrl = getManagementUrlForBooking(booking);
   const supportEmail = getSupportEmail() ?? null;
   const isDepositFlow = checkoutPurpose === "deposit";
   const sessionCompleted = session.status === "complete" && session.payment_status === "paid";
@@ -52,12 +65,15 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
     isDepositFlow &&
     booking.status === BookingStatus.CANCELLED &&
     booking.paymentStatus === PaymentStatus.FAILED;
-  // Payment state is still syncing (webhook not landed yet, or the manage link
-  // isn't ready). The finalizer polls until this resolves one way or the other.
+  // Payment state is still syncing (webhook not landed yet, or the manage-link
+  // email hasn't gone out). The finalizer polls until this resolves one way or
+  // the other. manageLinkSentAt is a safe readiness signal — the customer-scoped
+  // manage URL itself is never rendered on this page (it would expose the whole
+  // booking list to anyone who books with someone else's email).
   const isFinalizing =
     isDepositFlow &&
     !depositExpired &&
-    (booking.status === BookingStatus.PENDING_PAYMENT || !manageUrl);
+    (booking.status === BookingStatus.PENDING_PAYMENT || !booking.manageLinkSentAt);
   const needsBalanceSync =
     !isDepositFlow &&
     sessionCompleted &&
@@ -84,14 +100,14 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
     : isFinalizing
       ? "Stripe is confirming your payment. This page updates automatically — you don't need to do anything."
       : isDepositFlow
-        ? `Your booking is held for ${booking.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is still outstanding until service day.`
+        ? `Your booking is held for ${booking.customer.firstName}. We also emailed a secure booking management link and Stripe sent the payment receipt. Remaining balance is still outstanding until service day.`
         : balanceLinkExpired
           ? "This balance payment link is no longer active. Use the most recent payment email we sent, or contact us to request a new one."
           : needsBalanceSync
-            ? `Stripe completed the balance checkout for ${booking.firstName}. This page updates automatically once the booking reflects it.`
+            ? `Stripe completed the balance checkout for ${booking.customer.firstName}. This page updates automatically once the booking reflects it.`
             : booking.paymentStatus === PaymentStatus.PAID
-              ? `Stripe accepted the remaining balance for ${booking.firstName}. Your booking is now paid in full.`
-              : `Stripe accepted the payment for ${booking.firstName}. Refresh this page if the booking has not updated yet.`;
+              ? `Stripe accepted the remaining balance for ${booking.customer.firstName}. Your booking is now paid in full.`
+              : `Stripe accepted the payment for ${booking.customer.firstName}. Refresh this page if the booking has not updated yet.`;
 
   return (
     <main className="shell py-8 sm:py-12">
@@ -107,7 +123,7 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
             <p className="mt-1 text-sm text-muted">
               {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
             </p>
-            <p className="mt-1 text-sm text-muted">Vehicle: {booking.vehicleDescription}</p>
+            <p className="mt-1 text-sm text-muted">Vehicle: {booking.vehicle.description}</p>
           </div>
           <div className="soft-surface p-5">
             <p className="text-sm text-muted">Payment summary</p>
@@ -139,19 +155,13 @@ export default async function BookingConfirmationPage({ searchParams }: Props) {
                 : " If you had trouble paying, or believe you were charged, please contact the business directly."}
             </p>
           </div>
-        ) : manageUrl ? (
+        ) : booking.manageLinkSentAt ? (
           <div className="surface-block mt-6">
-            <p className="text-sm font-semibold">Bookmark your management link</p>
+            <p className="text-sm font-semibold">Check your email to manage this booking</p>
             <p className="mt-2 text-sm text-muted">
-              This is the same secure link sent by email. Save it if you want direct access to manage the booking later.
-            </p>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <Link className="button-primary" href={manageUrl}>
-                Manage booking
-              </Link>
-            </div>
-            <p className="mt-4 break-all rounded-2xl bg-white/70 px-4 py-3 text-sm ring-1 ring-foreground/10">
-              {manageUrl}
+              We emailed a secure link to <strong>{maskEmail(booking.customer.email)}</strong> for
+              viewing or canceling your bookings. It&apos;s the same email address you used at
+              checkout.
             </p>
           </div>
         ) : null}

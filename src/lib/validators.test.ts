@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { availabilitySchema, serviceSchema } from "./validators.ts";
+import { availabilitySchema, bookingSchema, serviceSchema } from "./validators.ts";
 
 function runTest(name: string, fn: () => void) {
   try {
@@ -64,6 +64,74 @@ runTest("availabilitySchema rejects a raw null id (guards the coercion, matches 
     startTime: "09:00",
     endTime: "17:00",
     isActive: true,
+  });
+
+  assert.equal(parsed.success, false);
+});
+
+// Mirrors what the wizard's hidden inputs post: every field present as a
+// string, optional metadata as "" when the address was typed manually.
+const validBookingPayload = {
+  serviceId: "svc_123",
+  date: "2026-07-20",
+  startAt: "2026-07-20T17:00:00.000Z",
+  firstName: "Jordan",
+  lastName: "Taylor",
+  email: "jordan@example.com",
+  phone: "5551234567",
+  vehicleDescription: "2022 Toyota RAV4",
+  color: "",
+  licensePlate: "",
+  notes: "",
+  address: "1234 Main St, Springfield",
+  addressPlaceId: "",
+  addressLat: "",
+  addressLng: "",
+  addressComponents: "",
+  addressValidated: "false",
+};
+
+runTest("bookingSchema accepts a manual address entry (no Places metadata)", () => {
+  const parsed = bookingSchema.safeParse(validBookingPayload);
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.data?.address, "1234 Main St, Springfield");
+  assert.equal(parsed.data?.addressPlaceId, undefined);
+  assert.equal(parsed.data?.addressLat, undefined);
+  assert.equal(parsed.data?.addressLng, undefined);
+  assert.equal(parsed.data?.addressValidated, false);
+});
+
+runTest("bookingSchema accepts a validated Places selection", () => {
+  const parsed = bookingSchema.safeParse({
+    ...validBookingPayload,
+    addressPlaceId: "ChIJexample",
+    addressLat: "37.774900",
+    addressLng: "-122.419400",
+    addressComponents: JSON.stringify([{ longText: "1234", types: ["street_number"] }]),
+    addressValidated: "true",
+  });
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.data?.addressPlaceId, "ChIJexample");
+  assert.equal(parsed.data?.addressLat, 37.7749);
+  assert.equal(parsed.data?.addressLng, -122.4194);
+  assert.equal(parsed.data?.addressValidated, true);
+});
+
+runTest("bookingSchema rejects a missing or too-short address", () => {
+  const missing = bookingSchema.safeParse({ ...validBookingPayload, address: "" });
+  assert.equal(missing.success, false);
+
+  const short = bookingSchema.safeParse({ ...validBookingPayload, address: "123" });
+  assert.equal(short.success, false);
+});
+
+runTest("bookingSchema rejects out-of-range coordinates", () => {
+  const parsed = bookingSchema.safeParse({
+    ...validBookingPayload,
+    addressLat: "91",
+    addressLng: "0",
   });
 
   assert.equal(parsed.success, false);

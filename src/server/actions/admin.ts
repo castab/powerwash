@@ -14,7 +14,7 @@ import { createAdminSession, hashPassword, requireAdmin, verifyPassword } from "
 import { findOverlappingActiveBooking } from "@/lib/booking";
 import { isImmutableBookingState } from "@/lib/booking-state";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
-import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
+import { getArchivedCustomerAccessEndsAt, getManagementUrlForCustomer } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
 import { getEnv } from "@/lib/env";
@@ -34,6 +34,7 @@ import {
   availabilitySchema,
   blackoutSchema,
   bookingAdminUpdateSchema,
+  businessSettingsSchema,
   requestBookingBalanceSchema,
   serviceSchema,
 } from "@/lib/validators";
@@ -466,7 +467,7 @@ export async function updateBookingAction(
 
       if (conflict) {
         return {
-          error: `That time overlaps ${conflict.firstName} ${conflict.lastName}'s ${
+          error: `That time overlaps ${conflict.customer.firstName} ${conflict.customer.lastName}'s ${
             conflict.service.name
           } booking at ${formatBusinessDateTimeLong(conflict.startAt)}. The booking was not changed.`,
         };
@@ -551,7 +552,7 @@ export async function requestBookingBalanceAction(
 
   const booking = await prisma.booking.findUnique({
     where: { id: parsed.data.bookingId },
-    include: { service: true },
+    include: { service: true, customer: true },
   });
 
   if (!booking) {
@@ -583,7 +584,7 @@ export async function requestBookingBalanceAction(
   const nextVersion = booking.balanceRequestVersion + 1;
   const env = getEnv();
   const appOrigin = await getRequestOrigin(env.appUrl);
-  const manageUrl = getManagementUrlForBooking(booking);
+  const manageUrl = getManagementUrlForCustomer(booking.customer);
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.create(
     {
@@ -591,7 +592,7 @@ export async function requestBookingBalanceAction(
       // Instant methods only, matching the deposit checkout — deferred methods
       // would leave the balance unsettled for days.
       payment_method_types: ["card"],
-      customer_email: booking.email,
+      customer_email: booking.customer.email,
       metadata: {
         bookingId: booking.id,
         checkoutPurpose: "balance",
@@ -652,6 +653,68 @@ export async function requestBookingBalanceAction(
   revalidatePath("/booking/manage");
 
   return { success: "Remaining balance request sent." };
+}
+
+export async function updateBusinessSettingsAction(
+  _state: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireAdmin();
+
+  const parsed = businessSettingsSchema.safeParse({
+    originAddress: formData.get("originAddress"),
+    originPlaceId: formData.get("originPlaceId") ?? undefined,
+    originLat: formData.get("originLat") ?? undefined,
+    originLng: formData.get("originLng") ?? undefined,
+    maxTravelMinutes: formData.get("maxTravelMinutes"),
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid service area settings." };
+  }
+
+  const data = {
+    originFormattedAddress: parsed.data.originAddress,
+    originPlaceId: parsed.data.originPlaceId ?? null,
+    originLat: parsed.data.originLat ?? null,
+    originLng: parsed.data.originLng ?? null,
+    maxTravelMinutes: parsed.data.maxTravelMinutes,
+  };
+
+  // Saving bumps the row's updatedAt, which implicitly invalidates every
+  // per-address eligibility memo (they compare against it for freshness).
+  await prisma.businessSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1, ...data },
+    update: data,
+  });
+
+  revalidatePath("/admin/settings");
+
+  return { success: "Service area settings saved." };
+}
+
+// Clearing the settings disables the service-area gate entirely — the booking
+// flow skips the travel-time check when unconfigured. This is also the manual
+// escape hatch if Google Routes has an outage and bookings are being blocked.
+export async function clearBusinessSettingsAction(): Promise<AdminActionState> {
+  await requireAdmin();
+
+  await prisma.businessSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: {
+      originFormattedAddress: null,
+      originPlaceId: null,
+      originLat: null,
+      originLng: null,
+      maxTravelMinutes: null,
+    },
+  });
+
+  revalidatePath("/admin/settings");
+
+  return { success: "Service area settings cleared. Bookings are no longer distance-checked." };
 }
 
 export async function archiveBookingAction(

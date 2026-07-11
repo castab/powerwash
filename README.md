@@ -112,8 +112,8 @@ Admin screens should share the same visual language as the rest of the applicati
 ### Customer Booking Flow
 
 1. Customer opens `/` to browse active services.
-2. Customer opens `/book`, which renders a five-step flow for service, appointment, vehicle, contact, and review.
-3. The service step selects the wash package; the separate appointment step uses a date input constrained to the booking window, then calls `/api/availability?serviceId=...&date=...` to populate morning and afternoon time choices.
+2. Customer opens `/book`, which renders a five-step flow for service, appointment, vehicle, contact, and review. Each step's Continue button remains disabled until its required fields are valid; the service step also waits for a selected address's service-area check and stays disabled when the address is outside the configured area.
+3. The service step selects the wash package; the separate appointment step presents the booking window as a horizontally scrollable date strip with Today/Tomorrow, weekday, and month/day labels, then calls `/api/availability?serviceId=...&date=...` to populate morning and afternoon time choices.
 4. The customer reviews the reservation and submits it to `createBookingCheckoutAction`.
 5. The server validates input with `bookingSchema`.
 6. `createHeldBooking` creates a `PENDING_PAYMENT` booking hold with `paymentExpiresAt` set to 35 minutes in the future.
@@ -420,6 +420,8 @@ Copy `.env.example` to `.env` for local development. Update `.env.example` whene
 | `RESEND_API_KEY` | Yes for email | Resend API key for transactional emails. |
 | `EMAIL_FROM` | Yes for email | Sender used for customer booking emails. |
 | `SUPPORT_EMAIL` | Yes in deploy scripts | Contact address included in booking emails. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Optional | Browser key for Google Maps JavaScript API + Places API (New) address autocomplete. When unset, the address field degrades to plain manual entry. Also used as the server-side Routes API fallback key, which only works when the key is restricted by API (Maps JavaScript, Places (New), Routes) rather than by HTTP referrer — referrer-restricted keys reject server-to-server calls. Set a billing cap in the Google Cloud console. |
+| `GOOGLE_MAPS_SERVER_API_KEY` | Optional | Separate server key for the Routes API travel-time check. Set this when the browser key is referrer-restricted. When neither key allows server calls, service-area checks fail and bookings are blocked with a retry message while the service area is configured — clear the service-area settings in the admin console to disable the gate. |
 | `SEED_ADMIN_EMAIL` | Optional | Seed admin login email. Defaults to `admin@example.com`. |
 | `SEED_ADMIN_PASSWORD` | Required in production seed | Seed admin login password. Defaults to `ChangeMe123!` in local development. In production the seed script throws when this is unset or still the default, so a public deploy cannot bootstrap the admin with the documented password. |
 | `CONFIRMATION_RECONCILE_DEBOUNCE_MS` | Optional | Debounce window for confirmation-page Stripe reconciliation. Defaults to `30000`. |
@@ -435,7 +437,7 @@ Add these values in `.env.local` or `.env` only for local development:
 
 ```env
 NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true
-NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","vehicleDescription":"2022 Toyota RAV4","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","vehicleDescription":"2022 Toyota RAV4","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats","address":"1234 Main St, Springfield"}
 ```
 
 Notes:

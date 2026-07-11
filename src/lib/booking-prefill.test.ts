@@ -48,7 +48,24 @@ runTest("parseDevBookingPrefill returns typed data when enabled with valid json"
     color: "Pearl white",
     licensePlate: "8ABC123",
     notes: "Pet hair",
+    address: "",
   });
+});
+
+runTest("parseDevBookingPrefill accepts an optional address", () => {
+  const result = parseDevBookingPrefill({
+    enabled: "true",
+    json: JSON.stringify({
+      firstName: "Jordan",
+      lastName: "Taylor",
+      email: "jordan@example.com",
+      phone: "5551234567",
+      vehicleDescription: "2022 Toyota RAV4",
+      address: "1234 Main St, Springfield",
+    }),
+  });
+
+  assert.equal(result?.address, "1234 Main St, Springfield");
 });
 
 runTest("parseDevBookingPrefill returns null for malformed json", () => {
@@ -81,6 +98,7 @@ runTest("parseDevBookingPrefill fills missing optional fields with empty strings
     color: "",
     licensePlate: "",
     notes: "",
+    address: "",
   });
 });
 
@@ -109,6 +127,7 @@ runTest("applyBookingFormPrefill merges onto existing values", () => {
     color: "Pearl white",
     licensePlate: "8ABC123",
     notes: "Pet hair",
+    address: "1234 Main St, Springfield",
   });
 
   assert.deepEqual(result, {
@@ -120,5 +139,6 @@ runTest("applyBookingFormPrefill merges onto existing values", () => {
     color: "Pearl white",
     licensePlate: "8ABC123",
     notes: "Pet hair",
+    address: "1234 Main St, Springfield",
   });
 });

@@ -2,14 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { BookingEventType, BookingStatus, PaymentStatus } from "@/generated/prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/generated/prisma/client";
 import { createHeldBooking, releaseHeldBooking } from "@/lib/booking";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { getEnv } from "@/lib/env";
 import {
   canAutoRefundBooking,
-  getManagedBookingByToken,
-  rotateAndSendManageBookingEmail,
+  getManagedCustomerByToken,
+  rotateAndSendManageCustomerEmail,
   sendCancellationOutcomeEmail,
 } from "@/lib/booking-management";
 import { reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
@@ -17,6 +17,12 @@ import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
 import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit";
+import {
+  checkServiceEligibility,
+  findFreshEligibleAddressMemo,
+  getBusinessSettings,
+  isServiceAreaConfigured,
+} from "@/lib/service-area";
 import { getClientIp } from "@/lib/request-ip";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { formatCurrency, toStripeCents } from "@/lib/utils";
@@ -24,6 +30,9 @@ import { formatCurrency, toStripeCents } from "@/lib/utils";
 export type BookingActionState = {
   status: "idle" | "error";
   message: string;
+  // Address-related rejections carry a code so the wizard can jump the customer
+  // back to the address field instead of leaving the error on the review step.
+  code?: "out_of_area" | "address_not_found" | "service_area_unavailable";
 };
 
 // Per-instance, in-memory debounce for confirmation-page reconciliation. This is
@@ -65,6 +74,20 @@ function pruneRecentConfirmationReconciliations(
   }
 }
 
+// The client posts Places addressComponents as a JSON string; anything
+// unparseable is dropped rather than failing the booking.
+function parseAddressComponents(raw: string | undefined) {
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(raw) as Prisma.InputJsonValue;
+  } catch {
+    return undefined;
+  }
+}
+
 function buildManageRedirect(token: string, params: Record<string, string>) {
   const searchParams = new URLSearchParams({ token, ...params });
   return `/booking/manage?${searchParams.toString()}`;
@@ -80,11 +103,23 @@ function isRedirectError(error: unknown) {
   );
 }
 
-async function cancelManagedBooking(token: string, confirmedInsideWindow: boolean) {
-  const booking = await getManagedBookingByToken(token);
+async function cancelManagedBooking(token: string, bookingId: string, confirmedInsideWindow: boolean) {
+  const customer = await getManagedCustomerByToken(token);
+
+  if (!customer) {
+    redirect("/booking/manage?error=invalid_link");
+  }
+
+  // The customerId predicate is the authorization check: a valid token can only
+  // reach bookings owned by the customer it was issued to.
+  const booking = bookingId
+    ? await prisma.booking.findFirst({
+        where: { id: bookingId, customerId: customer.id },
+      })
+    : null;
 
   if (!booking) {
-    redirect("/booking/manage?error=invalid_link");
+    redirect(buildManageRedirect(token, { error: "booking_not_found" }));
   }
 
   if (booking.status === BookingStatus.CANCELLED) {
@@ -210,6 +245,12 @@ export async function createBookingCheckoutAction(
     color: formData.get("color"),
     licensePlate: formData.get("licensePlate"),
     notes: formData.get("notes"),
+    address: formData.get("address"),
+    addressPlaceId: formData.get("addressPlaceId") ?? undefined,
+    addressLat: formData.get("addressLat") ?? undefined,
+    addressLng: formData.get("addressLng") ?? undefined,
+    addressComponents: formData.get("addressComponents") ?? undefined,
+    addressValidated: formData.get("addressValidated"),
   });
 
   if (!parsed.success) {
@@ -230,6 +271,74 @@ export async function createBookingCheckoutAction(
     };
   }
 
+  // Service-area gate. Runs before the DB hold and the Stripe session so an
+  // out-of-area customer is turned away before any money or slot is involved.
+  // Policy: unconfigured settings skip the check (first-run friendly); a
+  // Routes API failure blocks with a retry message (never admit unverified
+  // addresses); a fresh per-address memo skips the paid Routes call entirely.
+  let eligibility: { travelDurationSeconds: number; checkedAt: Date } | null = null;
+
+  const settings = await getBusinessSettings();
+
+  if (!isServiceAreaConfigured(settings)) {
+    console.warn("Service area is not configured; skipping the travel-time check for this booking.");
+  } else {
+    const memo = await findFreshEligibleAddressMemo({
+      email: parsed.data.email,
+      address: parsed.data.address,
+      placeId: parsed.data.addressPlaceId,
+    });
+
+    if (memo && memo.travelDurationSeconds !== null && memo.eligibilityCheckedAt !== null) {
+      eligibility = {
+        travelDurationSeconds: memo.travelDurationSeconds,
+        checkedAt: memo.eligibilityCheckedAt,
+      };
+    } else {
+      const decision = await checkServiceEligibility({
+        address: parsed.data.address,
+        placeId: parsed.data.addressPlaceId,
+        lat: parsed.data.addressLat,
+        lng: parsed.data.addressLng,
+      });
+
+      if (decision.status === "ineligible") {
+        return {
+          status: "error",
+          code: "out_of_area",
+          message:
+            "Unfortunately, that address is outside our current service area, so we aren't able to book this appointment. We're sorry we can't come to you this time!",
+        };
+      }
+
+      if (decision.status === "address_not_found") {
+        return {
+          status: "error",
+          code: "address_not_found",
+          message: "We couldn't find that address. Please double-check it and try again.",
+        };
+      }
+
+      if (decision.status === "unavailable") {
+        return {
+          status: "error",
+          code: "service_area_unavailable",
+          message:
+            "We couldn't verify your service address just now. Please try again in a minute — your appointment time hasn't been taken.",
+        };
+      }
+
+      if (decision.status === "eligible") {
+        eligibility = {
+          travelDurationSeconds: decision.travelDurationSeconds,
+          checkedAt: new Date(),
+        };
+      }
+      // "unconfigured" here means the settings were cleared mid-request; treat
+      // it the same as the skip path above.
+    }
+  }
+
   let heldBookingId: string | null = null;
 
   try {
@@ -238,8 +347,10 @@ export async function createBookingCheckoutAction(
     const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
+      addressComponents: parseAddressComponents(parsed.data.addressComponents),
       startAtIso: parsed.data.startAt,
       startAt,
+      eligibility,
     });
     heldBookingId = booking.id;
 
@@ -249,7 +360,7 @@ export async function createBookingCheckoutAction(
       // Deferred payment methods (ACH and friends) settle over days, which is
       // incompatible with the short slot hold — keep Checkout to instant methods.
       payment_method_types: ["card"],
-      customer_email: booking.email,
+      customer_email: booking.customer.email,
       // Expire the Checkout session together with the hold so a lapsed hold
       // can neither block the slot nor be paid for after it is released.
       expires_at: booking.paymentExpiresAt
@@ -304,8 +415,14 @@ export async function createBookingCheckoutAction(
 }
 
 export async function cancelManagedBookingAction(token: string, formData: FormData) {
+  const bookingId = formData.get("bookingId");
+
   try {
-    await cancelManagedBooking(token, formData.get("confirmInsideWindow") === "true");
+    await cancelManagedBooking(
+      token,
+      typeof bookingId === "string" ? bookingId : "",
+      formData.get("confirmInsideWindow") === "true",
+    );
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
@@ -317,17 +434,13 @@ export async function cancelManagedBookingAction(token: string, formData: FormDa
 
 export async function resendManagedBookingLinkAction(token: string) {
   try {
-    const booking = await getManagedBookingByToken(token);
+    const customer = await getManagedCustomerByToken(token);
 
-    if (!booking) {
+    if (!customer) {
       redirect("/booking/manage?error=invalid_link");
     }
 
-    if (booking.archivedAt) {
-      redirect(buildManageRedirect(token, { error: "archived_view_only" }));
-    }
-
-    const nextToken = await rotateAndSendManageBookingEmail(booking.id);
+    const nextToken = await rotateAndSendManageCustomerEmail(customer.id);
     if (!nextToken) {
       redirect(buildManageRedirect(token, { error: "resend_failed" }));
     }

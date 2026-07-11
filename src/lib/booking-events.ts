@@ -11,13 +11,15 @@ export function pickBookingEventState(
   booking: {
     id: string;
     serviceId: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    vehicleDescription: string;
-    vehicleColor: string | null;
-    vehicleLicensePlate: string | null;
+    customerId: string;
+    vehicleId: string;
+    serviceAddressId: string;
+    // Optional embedded snapshots: when the caller loaded the relations, they
+    // serialize into the event JSON so history stays human-readable even after
+    // the customer/vehicle/address rows are later updated.
+    customer?: { firstName: string; lastName: string; email: string; phone: string } | null;
+    vehicle?: { description: string; color: string | null; licensePlate: string | null } | null;
+    serviceAddress?: { formattedAddress: string; validated: boolean } | null;
     customerNotes: string | null;
     startAt: Date;
     endAt: Date;
@@ -26,12 +28,11 @@ export function pickBookingEventState(
     totalPrice: Prisma.Decimal | number | string;
     depositAmount: Prisma.Decimal | number | string;
     balanceDue: Prisma.Decimal | number | string;
+    travelDurationSecondsAtBooking: number | null;
     adminNotes: string | null;
     paymentExpiresAt: Date | null;
     confirmedAt: Date | null;
     cancelledAt: Date | null;
-    manageTokenVersion: number;
-    manageTokenRotatedAt: Date | null;
     manageLinkSentAt: Date | null;
     refundAmount: Prisma.Decimal | number | string | null;
     refundReason: string | null;

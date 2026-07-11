@@ -65,6 +65,14 @@ async function main() {
     }
   }
 
+  // The singleton settings row is created by migration 0006; this keeps it
+  // present on databases seeded before that migration's insert (e.g. resets).
+  await prisma.businessSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: {},
+  });
+
   const DEFAULT_ADMIN_PASSWORD = "ChangeMe123!";
   const email = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
   const configuredPassword = process.env.SEED_ADMIN_PASSWORD;
