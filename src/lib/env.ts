@@ -81,6 +81,11 @@ export function getEnv() {
     stripeWebhookSecret: readEnv("STRIPE_WEBHOOK_SECRET"),
     adminSessionSecret: readSecretEnv("ADMIN_SESSION_SECRET", "change-me"),
     manageLinkSecret: readSecretEnv("MANAGE_LINK_SECRET", "change-me-manage-link"),
+    // Signs the anti-bot booking-form token (proof-of-render + min fill time).
+    bookingFormSecret: readSecretEnv("BOOKING_FORM_SECRET", "change-me-booking-form"),
+    // Cloudflare Turnstile server secret. Optional: when empty the Turnstile
+    // check is skipped (see `verifyTurnstileToken`), so dev/first-run is unaffected.
+    turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY ?? "",
     resendApiKey: readEnv("RESEND_API_KEY"),
     confirmationReconcileDebounceMs: readOptionalPositiveIntEnv(
       "CONFIRMATION_RECONCILE_DEBOUNCE_MS",

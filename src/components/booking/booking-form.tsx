@@ -11,6 +11,7 @@ import { createBookingCheckoutAction, type BookingActionState } from "@/server/a
 import { formatCurrency } from "@/lib/utils";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { AddressAutocompleteInput, type AddressValue } from "@/components/address/address-autocomplete-input";
+import { TurnstileWidget } from "@/components/booking/turnstile-widget";
 
 const initialState: BookingActionState = {
   status: "idle",
@@ -97,10 +98,14 @@ export function BookingForm({
   services,
   dateOptions,
   devPrefill,
+  formToken,
+  turnstileSiteKey = "",
 }: {
   services: BookingFormService[];
   dateOptions: string[];
   devPrefill?: BookingFormPrefill | null;
+  formToken: string;
+  turnstileSiteKey?: string;
 }) {
   const searchParams = useSearchParams();
   const defaultServiceId = searchParams.get("serviceId") ?? services[0]?.id ?? "";
@@ -117,6 +122,11 @@ export function BookingForm({
   const [addressMeta, setAddressMeta] = useState<AddressMeta>(emptyAddressMeta);
   const [serviceArea, setServiceArea] = useState<ServiceAreaFeedback>(unknownServiceArea);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  // Turnstile token for the final submit. Empty until the widget solves; when no
+  // site key is configured Turnstile is disabled and this stays empty (the
+  // server skips the check too).
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileEnabled = turnstileSiteKey.length > 0;
   const [state, formAction] = useActionState(createBookingCheckoutAction, initialState);
 
   // Address rejections from the server land the customer back on the address
@@ -217,6 +227,7 @@ export function BookingForm({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            formToken,
             address: checkedAddress,
             placeId: addressMeta.placeId,
             lat: addressMeta.lat ? Number(addressMeta.lat) : undefined,
@@ -362,6 +373,24 @@ export function BookingForm({
       <input name="addressLng" type="hidden" value={addressMeta.lng} />
       <input name="addressComponents" type="hidden" value={addressMeta.componentsJson} />
       <input name="addressValidated" type="hidden" value={addressMeta.validated ? "true" : "false"} />
+
+      {/* Anti-bot fields. `formToken` proves the form was server-rendered and
+          gates min fill time; `turnstileToken` carries the Cloudflare challenge
+          result. The honeypot is an off-screen decoy: real customers never see
+          or fill it, so any value here flags an automated submit. */}
+      <input name="formToken" type="hidden" value={formToken} />
+      <input name="turnstileToken" type="hidden" value={turnstileToken} />
+      <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", width: 1, height: 1, overflow: "hidden" }}>
+        <label htmlFor="company-website">Company website (leave blank)</label>
+        <input
+          id="company-website"
+          name="company"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          defaultValue=""
+        />
+      </div>
 
       <div>
         <p className="eyebrow">Reserve with deposit only</p>
@@ -743,8 +772,20 @@ export function BookingForm({
               </dl>
             </div>
 
+            {turnstileEnabled ? (
+              <div className="md:col-span-2">
+                <TurnstileWidget siteKey={turnstileSiteKey} onToken={setTurnstileToken} />
+              </div>
+            ) : null}
+
             {state.status === "error" ? (
               <p aria-live="polite" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">
+                {state.message}
+              </p>
+            ) : null}
+
+            {state.status === "success" ? (
+              <p aria-live="polite" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 md:col-span-2">
                 {state.message}
               </p>
             ) : null}
@@ -769,7 +810,9 @@ export function BookingForm({
             Continue
           </button>
         ) : (
-          <SubmitButton disabled={!areAllStepsComplete}>Continue to deposit payment</SubmitButton>
+          <SubmitButton disabled={!areAllStepsComplete || (turnstileEnabled && !turnstileToken)}>
+            Continue to deposit payment
+          </SubmitButton>
         )}
       </div>
     </form>

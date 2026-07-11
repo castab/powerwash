@@ -325,7 +325,7 @@ What it does:
 Before first run:
 
 1. Copy `.env.example` to `.env`.
-2. Set at least `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_SESSION_SECRET`, `MANAGE_LINK_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, and `SUPPORT_EMAIL`.
+2. Set at least `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_SESSION_SECRET`, `MANAGE_LINK_SECRET`, `BOOKING_FORM_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, and `SUPPORT_EMAIL`.
 3. Leave database URLs in `.env` as-is if you also want to run the app on the host. Compose overrides them automatically for the containerized app.
 
 Start the stack:
@@ -417,6 +417,9 @@ Copy `.env.example` to `.env` for local development. Update `.env.example` whene
 | `STRIPE_WEBHOOK_SECRET` | Yes for webhook | Stripe signing secret for `/api/stripe/webhook`. |
 | `ADMIN_SESSION_SECRET` | Yes | Secret used to sign admin session cookies. Must be at least 32 characters and not a placeholder value; production boots/builds fail closed when it is missing, short, or still a `change-me*`/`replace-with*` value. Local development falls back to an insecure default with a warning. |
 | `MANAGE_LINK_SECRET` | Yes | Secret used to sign customer booking management links. Same strength and fail-closed production rules as `ADMIN_SESSION_SECRET`, and validated by both deploy scripts. |
+| `BOOKING_FORM_SECRET` | Yes | Secret used to sign the anti-bot booking-form token (proof-of-render + minimum fill time). Same strength and fail-closed production rules as `ADMIN_SESSION_SECRET`. |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Optional | Cloudflare Turnstile site key rendered on the final booking step. When unset (together with the secret), the challenge widget and server-side verification are skipped. |
+| `TURNSTILE_SECRET_KEY` | Optional | Cloudflare Turnstile secret used for server-side `siteverify`. When empty the Turnstile check is skipped (fails open only when unconfigured; fails closed on an invalid/absent token once a secret is set). |
 | `RESEND_API_KEY` | Yes for email | Resend API key for transactional emails. |
 | `EMAIL_FROM` | Yes for email | Sender used for customer booking emails. |
 | `SUPPORT_EMAIL` | Yes in deploy scripts | Contact address included in booking emails. |
