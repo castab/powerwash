@@ -8,6 +8,7 @@ import {
 } from "@/server/actions/admin";
 import { ActionMessages } from "@/components/admin/action-messages";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AddressAutocompleteInput, type AddressValue } from "@/components/address/address-autocomplete-input";
 
 const initialState: AdminActionState = {};
 
@@ -21,15 +22,17 @@ export type BusinessSettingsFormValues = {
 
 // Places metadata travels in hidden inputs alongside the visible address text,
 // mirroring the booking form. Editing the address text clears the metadata so
-// stale coordinates never accompany a changed origin.
+// stale coordinates never accompany a changed origin. Manual entry (no Places
+// selection) is fine — the server geocodes a plain address string too.
 export function BusinessSettingsForm({ settings }: { settings: BusinessSettingsFormValues }) {
   const [saveState, saveAction] = useActionState(updateBusinessSettingsAction, initialState);
   const [clearState, clearAction] = useActionState(clearBusinessSettingsAction, initialState);
-  const [originAddress, setOriginAddress] = useState(settings.originAddress);
-  const [originMeta, setOriginMeta] = useState({
-    placeId: settings.originPlaceId,
-    lat: settings.originLat,
-    lng: settings.originLng,
+  const [origin, setOrigin] = useState<AddressValue>({
+    formattedAddress: settings.originAddress,
+    placeId: settings.originPlaceId || undefined,
+    lat: settings.originLat ? Number(settings.originLat) : undefined,
+    lng: settings.originLng ? Number(settings.originLng) : undefined,
+    validated: Boolean(settings.originPlaceId),
   });
 
   return (
@@ -44,28 +47,20 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettingsF
           </p>
         </div>
 
-        <input name="originPlaceId" type="hidden" value={originMeta.placeId} />
-        <input name="originLat" type="hidden" value={originMeta.lat} />
-        <input name="originLng" type="hidden" value={originMeta.lng} />
+        <input name="originAddress" type="hidden" value={origin.formattedAddress} />
+        <input name="originPlaceId" type="hidden" value={origin.placeId ?? ""} />
+        <input name="originLat" type="hidden" value={origin.lat ?? ""} />
+        <input name="originLng" type="hidden" value={origin.lng ?? ""} />
 
-        <label className="stack gap-2">
-          <span className="text-sm font-medium">Business origin address</span>
-          <input
-            autoComplete="street-address"
-            className="field"
-            name="originAddress"
-            onChange={(event) => {
-              setOriginAddress(event.target.value);
-              setOriginMeta({ placeId: "", lat: "", lng: "" });
-            }}
-            placeholder="1234 Main St, Springfield"
-            required
-            value={originAddress}
-          />
-          <span className="text-xs text-muted">
-            Where you depart from — travel time is measured from here to the customer.
-          </span>
-        </label>
+        <AddressAutocompleteInput
+          autoComplete="street-address"
+          hint="Where you depart from — travel time is measured from here to the customer."
+          id="originAddress-input"
+          label="Business origin address"
+          onChange={setOrigin}
+          placeholder="1234 Main St, Springfield"
+          value={origin}
+        />
 
         <label className="stack gap-2">
           <span className="text-sm font-medium">Max travel time (minutes)</span>

@@ -10,6 +10,7 @@ import {
 import { createBookingCheckoutAction, type BookingActionState } from "@/server/actions/booking";
 import { formatCurrency } from "@/lib/utils";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AddressAutocompleteInput, type AddressValue } from "@/components/address/address-autocomplete-input";
 
 const initialState: BookingActionState = {
   status: "idle",
@@ -242,6 +243,30 @@ export function BookingForm({
     setFieldErrors((current) => ({ ...current, [key]: undefined }));
   }
 
+  // Bridges AddressAutocompleteInput's typed AddressValue with the existing
+  // flat-string values/addressMeta state that the hidden inputs serialize.
+  const addressValue: AddressValue = {
+    formattedAddress: values.address,
+    placeId: addressMeta.placeId || undefined,
+    lat: addressMeta.lat ? Number(addressMeta.lat) : undefined,
+    lng: addressMeta.lng ? Number(addressMeta.lng) : undefined,
+    components: addressMeta.componentsJson
+      ? (JSON.parse(addressMeta.componentsJson) as AddressValue["components"])
+      : undefined,
+    validated: addressMeta.validated,
+  };
+
+  function handleAddressChange(next: AddressValue) {
+    updateValue("address", next.formattedAddress);
+    setAddressMeta({
+      placeId: next.placeId ?? "",
+      lat: next.lat !== undefined ? String(next.lat) : "",
+      lng: next.lng !== undefined ? String(next.lng) : "",
+      componentsJson: next.components ? JSON.stringify(next.components) : "",
+      validated: next.validated,
+    });
+  }
+
   function validateStep(step: StepIndex) {
     const errors: FieldErrors = {};
 
@@ -393,30 +418,22 @@ export function BookingForm({
               </div>
             ) : null}
 
-            <label className="stack gap-2 max-w-xl">
-              <span className="text-sm font-medium">Service address</span>
-              <input
-                aria-describedby={fieldErrors.address ? "address-error" : "address-hint"}
+            <div className="max-w-xl">
+              <AddressAutocompleteInput
                 autoComplete="street-address"
-                className="field"
-                onChange={(event) => {
-                  updateValue("address", event.target.value);
-                  setAddressMeta(emptyAddressMeta);
-                }}
+                error={fieldErrors.address}
+                hint="We come to you — this is where we'll service your vehicle."
+                id="address"
+                label="Service address"
+                onChange={handleAddressChange}
                 placeholder="1234 Main St, Springfield"
-                value={values.address}
+                value={addressValue}
               />
-              <span className="text-sm text-muted" id="address-hint">
-                We come to you — this is where we&apos;ll service your vehicle.
-              </span>
-              <span id="address-error">
-                <ErrorMessage>{fieldErrors.address}</ErrorMessage>
-              </span>
               {!fieldErrors.address &&
               serviceArea.status !== "unknown" &&
               serviceArea.forAddress === values.address.trim() ? (
                 <p
-                  className={`text-sm ${serviceArea.status === "eligible" ? "text-emerald-700" : "text-danger"}`}
+                  className={`mt-2 text-sm ${serviceArea.status === "eligible" ? "text-emerald-700" : "text-danger"}`}
                 >
                   {serviceArea.status === "eligible"
                     ? `Great news — you're in our service area${
@@ -427,7 +444,7 @@ export function BookingForm({
                     : OUT_OF_AREA_MESSAGE}
                 </p>
               ) : null}
-            </label>
+            </div>
           </div>
         ) : null}
 
