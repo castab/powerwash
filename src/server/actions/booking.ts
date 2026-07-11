@@ -2,14 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { BookingEventType, BookingStatus, PaymentStatus } from "@/generated/prisma/client";
+import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/generated/prisma/client";
 import { createHeldBooking, releaseHeldBooking } from "@/lib/booking";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { getEnv } from "@/lib/env";
 import {
   canAutoRefundBooking,
-  getManagedBookingByToken,
-  rotateAndSendManageBookingEmail,
+  getManagedCustomerByToken,
+  rotateAndSendManageCustomerEmail,
   sendCancellationOutcomeEmail,
 } from "@/lib/booking-management";
 import { reconcileCheckoutSession } from "@/lib/stripe-reconciliation";
@@ -24,6 +24,9 @@ import { formatCurrency, toStripeCents } from "@/lib/utils";
 export type BookingActionState = {
   status: "idle" | "error";
   message: string;
+  // Address-related rejections carry a code so the wizard can jump the customer
+  // back to the address field instead of leaving the error on the review step.
+  code?: "out_of_area" | "address_not_found" | "service_area_unavailable";
 };
 
 // Per-instance, in-memory debounce for confirmation-page reconciliation. This is
@@ -65,6 +68,20 @@ function pruneRecentConfirmationReconciliations(
   }
 }
 
+// The client posts Places addressComponents as a JSON string; anything
+// unparseable is dropped rather than failing the booking.
+function parseAddressComponents(raw: string | undefined) {
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(raw) as Prisma.InputJsonValue;
+  } catch {
+    return undefined;
+  }
+}
+
 function buildManageRedirect(token: string, params: Record<string, string>) {
   const searchParams = new URLSearchParams({ token, ...params });
   return `/booking/manage?${searchParams.toString()}`;
@@ -80,11 +97,23 @@ function isRedirectError(error: unknown) {
   );
 }
 
-async function cancelManagedBooking(token: string, confirmedInsideWindow: boolean) {
-  const booking = await getManagedBookingByToken(token);
+async function cancelManagedBooking(token: string, bookingId: string, confirmedInsideWindow: boolean) {
+  const customer = await getManagedCustomerByToken(token);
+
+  if (!customer) {
+    redirect("/booking/manage?error=invalid_link");
+  }
+
+  // The customerId predicate is the authorization check: a valid token can only
+  // reach bookings owned by the customer it was issued to.
+  const booking = bookingId
+    ? await prisma.booking.findFirst({
+        where: { id: bookingId, customerId: customer.id },
+      })
+    : null;
 
   if (!booking) {
-    redirect("/booking/manage?error=invalid_link");
+    redirect(buildManageRedirect(token, { error: "booking_not_found" }));
   }
 
   if (booking.status === BookingStatus.CANCELLED) {
@@ -210,6 +239,12 @@ export async function createBookingCheckoutAction(
     color: formData.get("color"),
     licensePlate: formData.get("licensePlate"),
     notes: formData.get("notes"),
+    address: formData.get("address"),
+    addressPlaceId: formData.get("addressPlaceId") ?? undefined,
+    addressLat: formData.get("addressLat") ?? undefined,
+    addressLng: formData.get("addressLng") ?? undefined,
+    addressComponents: formData.get("addressComponents") ?? undefined,
+    addressValidated: formData.get("addressValidated"),
   });
 
   if (!parsed.success) {
@@ -238,8 +273,10 @@ export async function createBookingCheckoutAction(
     const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
+      addressComponents: parseAddressComponents(parsed.data.addressComponents),
       startAtIso: parsed.data.startAt,
       startAt,
+      eligibility: null,
     });
     heldBookingId = booking.id;
 
@@ -249,7 +286,7 @@ export async function createBookingCheckoutAction(
       // Deferred payment methods (ACH and friends) settle over days, which is
       // incompatible with the short slot hold — keep Checkout to instant methods.
       payment_method_types: ["card"],
-      customer_email: booking.email,
+      customer_email: booking.customer.email,
       // Expire the Checkout session together with the hold so a lapsed hold
       // can neither block the slot nor be paid for after it is released.
       expires_at: booking.paymentExpiresAt
@@ -304,8 +341,14 @@ export async function createBookingCheckoutAction(
 }
 
 export async function cancelManagedBookingAction(token: string, formData: FormData) {
+  const bookingId = formData.get("bookingId");
+
   try {
-    await cancelManagedBooking(token, formData.get("confirmInsideWindow") === "true");
+    await cancelManagedBooking(
+      token,
+      typeof bookingId === "string" ? bookingId : "",
+      formData.get("confirmInsideWindow") === "true",
+    );
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
@@ -317,17 +360,13 @@ export async function cancelManagedBookingAction(token: string, formData: FormDa
 
 export async function resendManagedBookingLinkAction(token: string) {
   try {
-    const booking = await getManagedBookingByToken(token);
+    const customer = await getManagedCustomerByToken(token);
 
-    if (!booking) {
+    if (!customer) {
       redirect("/booking/manage?error=invalid_link");
     }
 
-    if (booking.archivedAt) {
-      redirect(buildManageRedirect(token, { error: "archived_view_only" }));
-    }
-
-    const nextToken = await rotateAndSendManageBookingEmail(booking.id);
+    const nextToken = await rotateAndSendManageCustomerEmail(customer.id);
     if (!nextToken) {
       redirect(buildManageRedirect(token, { error: "resend_failed" }));
     }

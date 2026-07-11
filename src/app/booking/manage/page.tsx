@@ -2,8 +2,9 @@ import Link from "next/link";
 import { BookingStatus, PaymentStatus } from "@/generated/prisma/browser";
 import {
   canAutoRefundBooking,
-  getManagedBookingByToken,
+  getManagedCustomerByToken,
   getSupportEmail,
+  type ManagedCustomerBooking,
 } from "@/lib/booking-management";
 import {
   formatBusinessDateLong,
@@ -51,6 +52,8 @@ function getErrorMessage(error: string | undefined) {
   switch (error) {
     case "invalid_link":
       return "This management link is invalid or has been replaced by a newer email.";
+    case "booking_not_found":
+      return "That booking is no longer available from this link.";
     case "cannot_cancel_terminal":
       return "This booking can no longer be canceled online.";
     case "not_cancellable":
@@ -70,6 +73,143 @@ function getErrorMessage(error: string | undefined) {
   }
 }
 
+function splitBookingsByTime(bookings: ManagedCustomerBooking[]) {
+  const now = Date.now();
+
+  return {
+    upcoming: bookings.filter((booking) => booking.startAt.getTime() >= now),
+    past: bookings.filter((booking) => booking.startAt.getTime() < now),
+  };
+}
+
+function BookingCard({
+  booking,
+  token,
+  confirm,
+  supportEmail,
+}: {
+  booking: ManagedCustomerBooking;
+  token: string;
+  confirm: string | undefined;
+  supportEmail: string;
+}) {
+  const cancelAction = cancelManagedBookingAction.bind(null, token);
+  const autoRefundEligible = canAutoRefundBooking(booking.startAt);
+  const showCancellationWarning = !autoRefundEligible && confirm === booking.id;
+  const canCancel =
+    booking.status === BookingStatus.CONFIRMED &&
+    booking.paymentStatus === PaymentStatus.PARTIALLY_PAID;
+  const manageBase = `/booking/manage?token=${encodeURIComponent(token)}`;
+
+  return (
+    <article className="soft-surface p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-lg font-semibold">{booking.service.name}</h3>
+        <p className="text-sm text-muted">
+          {booking.status.replaceAll("_", " ")} · {booking.paymentStatus.replaceAll("_", " ")}
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <p className="text-sm text-muted">Appointment</p>
+          <p className="mt-1 text-sm font-medium">
+            {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
+          </p>
+          <p className="mt-3 text-sm text-muted">Vehicle</p>
+          <p className="mt-1 text-sm font-medium">{booking.vehicle.description}</p>
+          <p className="mt-1 text-sm text-muted">
+            {booking.vehicle.color || "Color not provided"}
+            {booking.vehicle.licensePlate ? ` | Plate ${booking.vehicle.licensePlate}` : ""}
+          </p>
+          <p className="mt-3 text-sm text-muted">Service address</p>
+          <p className="mt-1 text-sm font-medium">{booking.serviceAddress.formattedAddress}</p>
+        </div>
+
+        <div>
+          <p className="text-sm text-muted">Payment</p>
+          <p className="mt-1 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
+          <p className="mt-1 text-sm">
+            {booking.paymentStatus === PaymentStatus.PAID
+              ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
+              : `Balance outstanding: ${formatCurrency(booking.balanceDue)}`}
+          </p>
+          {booking.balanceRequestedAt ? (
+            <p className="mt-1 text-sm">
+              Payment link sent on {formatBusinessDateTimeLong(booking.balanceRequestedAt)}
+            </p>
+          ) : null}
+          {booking.balancePaidAt ? (
+            <p className="mt-1 text-sm">
+              Balance paid on {formatBusinessDateTimeLong(booking.balancePaidAt)}
+            </p>
+          ) : null}
+          {booking.refundedAt ? (
+            <p className="mt-1 text-sm">
+              Refunded {formatCurrency(booking.refundAmount ?? 0)} on{" "}
+              {formatBusinessDateTimeLong(booking.refundedAt)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {canCancel ? (
+        <div className="mt-5 border-t border-foreground/10 pt-4">
+          {!autoRefundEligible ? (
+            showCancellationWarning ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-800">
+                  <p className="font-semibold">Cancel this booking now?</p>
+                  <p className="mt-2">
+                    This booking will be canceled immediately. The deposit may be forfeited and no
+                    automatic refund will be issued.
+                  </p>
+                  <p className="mt-2">
+                    {supportEmail
+                      ? `For refund support, please contact ${supportEmail}.`
+                      : "For refund support, please contact the business directly."}
+                  </p>
+                </div>
+                <form action={cancelAction} className="flex flex-col gap-3 sm:flex-row">
+                  <input name="bookingId" type="hidden" value={booking.id} />
+                  <input name="confirmInsideWindow" type="hidden" value="true" />
+                  <SubmitButton className="bg-red-600 hover:bg-red-700">
+                    Confirm cancellation
+                  </SubmitButton>
+                  <Link className="button-secondary justify-center" href={manageBase}>
+                    Keep booking
+                  </Link>
+                </form>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                  Canceling inside 24 hours may forfeit the deposit and requires an extra
+                  confirmation step.
+                </div>
+                <Link
+                  className="button-primary inline-flex justify-center"
+                  href={`${manageBase}&confirm=${encodeURIComponent(booking.id)}`}
+                >
+                  Review cancellation warning
+                </Link>
+              </div>
+            )
+          ) : (
+            <form action={cancelAction} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input name="bookingId" type="hidden" value={booking.id} />
+              <SubmitButton className="bg-red-600 hover:bg-red-700">Cancel booking</SubmitButton>
+              <p className="text-sm text-muted">
+                Canceling now will automatically refund the deposit.
+              </p>
+            </form>
+          )}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 export default async function BookingManagePage({ searchParams }: Props) {
   const { token, result, error, confirm } = await searchParams;
   const supportEmail = getSupportEmail();
@@ -78,10 +218,10 @@ export default async function BookingManagePage({ searchParams }: Props) {
     return (
       <main className="shell py-8">
         <div className="surface-block mx-auto max-w-3xl">
-          <p className="eyebrow">Manage booking</p>
+          <p className="eyebrow">Manage bookings</p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Invalid management link</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            This link is missing the secure token needed to view the booking.
+            This link is missing the secure token needed to view your bookings.
           </p>
           <div className="mt-6">
             <Link className="button-primary" href="/">
@@ -93,13 +233,13 @@ export default async function BookingManagePage({ searchParams }: Props) {
     );
   }
 
-  const booking = await getManagedBookingByToken(token);
+  const customer = await getManagedCustomerByToken(token);
 
-  if (!booking) {
+  if (!customer) {
     return (
       <main className="shell py-8">
         <div className="surface-block mx-auto max-w-3xl">
-          <p className="eyebrow">Manage booking</p>
+          <p className="eyebrow">Manage bookings</p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Link no longer valid</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             This link is invalid or has been replaced by a newer email. Use the latest management
@@ -115,39 +255,22 @@ export default async function BookingManagePage({ searchParams }: Props) {
     );
   }
 
-  const cancelAction = cancelManagedBookingAction.bind(null, token);
   const resendAction = resendManagedBookingLinkAction.bind(null, token);
   const resultMessage = getResultMessage(result, supportEmail);
   const errorMessage = getErrorMessage(error);
-  const autoRefundEligible = canAutoRefundBooking(booking.startAt);
-  const showCancellationWarning = !autoRefundEligible && confirm === "1";
-  const canCancel =
-    !booking.archivedAt &&
-    booking.status === BookingStatus.CONFIRMED &&
-    booking.paymentStatus === PaymentStatus.PARTIALLY_PAID;
-  const isArchived = Boolean(booking.archivedAt);
+  const { upcoming: upcomingBookings, past: pastBookings } = splitBookingsByTime(
+    customer.bookings,
+  );
 
   return (
     <main className="shell py-8 sm:py-12">
       <div className="mx-auto max-w-4xl">
-        <p className="eyebrow">Manage booking</p>
-        <h1 className="page-title mt-4">
-          {booking.service.name} booking
-        </h1>
+        <p className="eyebrow">Manage bookings</p>
+        <h1 className="page-title mt-4">Your bookings</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Review the reservation details, resend this secure link, or cancel the booking.
+          Hi {customer.firstName} — review your reservations, cancel a booking, or resend this
+          secure link.
         </p>
-
-        {isArchived ? (
-          <p className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            This booking has been archived. You can still view the details, but management actions
-            are disabled. Customer access remains available until{" "}
-            {booking.customerAccessEndsAt
-              ? formatBusinessDateLong(booking.customerAccessEndsAt)
-              : "the retention window ends"}
-            .
-          </p>
-        ) : null}
 
         {resultMessage ? (
           <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -161,139 +284,72 @@ export default async function BookingManagePage({ searchParams }: Props) {
           </p>
         ) : null}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="soft-surface p-5">
-            <p className="text-sm text-muted">Appointment</p>
-            <p className="mt-2 text-lg font-semibold">
-              {formatBusinessDateLong(booking.startAt)} at {formatBusinessTime(booking.startAt)}
+        {!customer.bookings.length ? (
+          <div className="surface-block mt-6">
+            <p className="text-sm text-muted">
+              You don&apos;t have any active bookings. Book a new appointment any time.
             </p>
-            <p className="mt-1 text-sm text-muted">{booking.service.name}</p>
-            <p className="mt-4 text-sm text-muted">Vehicle</p>
-            <p className="mt-1 text-sm font-medium">{booking.vehicleDescription}</p>
-            <p className="mt-1 text-sm text-muted">
-              {booking.vehicleColor || "Color not provided"}
-              {booking.vehicleLicensePlate ? ` | Plate ${booking.vehicleLicensePlate}` : ""}
-            </p>
-          </div>
-
-          <div className="soft-surface p-5">
-            <p className="text-sm text-muted">Payment and status</p>
-            <p className="mt-2 text-sm">Status: {booking.status.replaceAll("_", " ")}</p>
-            <p className="mt-1 text-sm">Payment: {booking.paymentStatus.replaceAll("_", " ")}</p>
-            <p className="mt-1 text-sm">Deposit paid: {formatCurrency(booking.depositAmount)}</p>
-            <p className="mt-1 text-sm">
-              {booking.paymentStatus === PaymentStatus.PAID
-                ? `Paid in full: ${formatCurrency(booking.totalPrice)}`
-                : `Balance outstanding: ${formatCurrency(booking.balanceDue)}`}
-            </p>
-            {booking.balanceRequestedAt ? (
-              <p className="mt-1 text-sm">
-                Payment link sent on {formatBusinessDateTimeLong(booking.balanceRequestedAt)}
-              </p>
-            ) : null}
-            {booking.balancePaidAt ? (
-              <p className="mt-1 text-sm">
-                Balance paid on {formatBusinessDateTimeLong(booking.balancePaidAt)}
-              </p>
-            ) : null}
-            {booking.refundedAt ? (
-              <p className="mt-1 text-sm">
-                Refunded {formatCurrency(booking.refundAmount ?? 0)} on{" "}
-                {formatBusinessDateTimeLong(booking.refundedAt)}
-              </p>
-            ) : null}
-            <div className="mt-4 rounded-2xl bg-white/70 px-4 py-3 text-sm text-muted ring-1 ring-foreground/10">
-              {autoRefundEligible
-                ? "Canceling now will automatically refund the deposit."
-                : supportEmail
-                  ? `Canceling now will not refund the deposit automatically. Email ${supportEmail} for help.`
-                  : "Canceling now will not refund the deposit automatically. Contact the business for help."}
+            <div className="mt-4">
+              <Link className="button-primary" href="/book">
+                Book an appointment
+              </Link>
             </div>
           </div>
-        </div>
+        ) : null}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        {upcomingBookings.length ? (
+          <section className="mt-8">
+            <h2 className="text-xl font-semibold tracking-tight">Upcoming</h2>
+            <div className="mt-4 grid gap-4">
+              {upcomingBookings.map((booking) => (
+                <BookingCard
+                  booking={booking}
+                  confirm={confirm}
+                  key={booking.id}
+                  supportEmail={supportEmail}
+                  token={token}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {pastBookings.length ? (
+          <section className="mt-8">
+            <h2 className="text-xl font-semibold tracking-tight">Past</h2>
+            <div className="mt-4 grid gap-4">
+              {pastBookings.map((booking) => (
+                <BookingCard
+                  booking={booking}
+                  confirm={confirm}
+                  key={booking.id}
+                  supportEmail={supportEmail}
+                  token={token}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <div className="mt-8 grid gap-4 md:grid-cols-2">
           <form action={resendAction} className="surface-block">
             <h2 className="text-lg font-semibold">Resend secure link</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Email a fresh management link and invalidate older links.
             </p>
             <div className="mt-4">
-              <SubmitButton disabled={isArchived}>Email new link</SubmitButton>
+              <SubmitButton>Email new link</SubmitButton>
             </div>
-            {isArchived ? (
-              <p className="mt-3 text-sm text-muted">
-                Archived bookings cannot issue new customer links.
-              </p>
-            ) : null}
           </form>
 
-          <form action={cancelAction} className="surface-block">
-            <h2 className="text-lg font-semibold">Cancel booking</h2>
+          <div className="surface-block">
+            <h2 className="text-lg font-semibold">Cancellation policy</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Confirmed bookings canceled at least 24 hours before the appointment receive an
-              automatic refund of the deposit.
+              automatic refund of the deposit. Cancellations inside 24 hours are not refunded
+              automatically.
             </p>
-            {canCancel && !autoRefundEligible ? (
-              <div className="mt-4 space-y-4">
-                {showCancellationWarning ? (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-800">
-                    <p className="font-semibold">Cancel this booking now?</p>
-                    <p className="mt-2">
-                      This booking will be canceled immediately. The deposit may be forfeited and
-                      no automatic refund will be issued.
-                    </p>
-                    <p className="mt-2">
-                      {supportEmail
-                        ? `For refund support, please contact ${supportEmail}.`
-                        : "For refund support, please contact the business directly."}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
-                    Canceling inside 24 hours may forfeit the deposit and requires an extra
-                    confirmation step.
-                  </div>
-                )}
-
-                {showCancellationWarning ? (
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <input name="confirmInsideWindow" type="hidden" value="true" />
-                    <SubmitButton className="bg-red-600 hover:bg-red-700">
-                      Confirm cancellation
-                    </SubmitButton>
-                    <Link
-                      className="button-secondary justify-center"
-                      href={`/booking/manage?token=${encodeURIComponent(token)}`}
-                    >
-                      Keep booking
-                    </Link>
-                  </div>
-                ) : (
-                  <Link
-                    className="button-primary inline-flex justify-center"
-                    href={`/booking/manage?token=${encodeURIComponent(token)}&confirm=1`}
-                  >
-                    Review cancellation warning
-                  </Link>
-                )}
-              </div>
-            ) : (
-              <div className="mt-4">
-                <SubmitButton
-                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-300"
-                  disabled={!canCancel}
-                >
-                  {canCancel ? "Cancel booking" : "Cancellation unavailable"}
-                </SubmitButton>
-              </div>
-            )}
-            {!canCancel ? (
-              <p className="mt-3 text-sm text-muted">
-                This booking is not currently eligible for online cancellation.
-              </p>
-            ) : null}
-          </form>
+          </div>
         </div>
 
         <div className="mt-6">

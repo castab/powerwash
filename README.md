@@ -437,7 +437,7 @@ Add these values in `.env.local` or `.env` only for local development:
 
 ```env
 NEXT_PUBLIC_DEV_BOOKING_PREFILL_ENABLED=true
-NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","vehicleDescription":"2022 Toyota RAV4","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats"}
+NEXT_PUBLIC_DEV_BOOKING_PREFILL_JSON={"firstName":"Jordan","lastName":"Taylor","email":"jordan@example.com","phone":"5551234567","vehicleDescription":"2022 Toyota RAV4","color":"Pearl white","licensePlate":"8ABC123","notes":"Pet hair, child seats","address":"1234 Main St, Springfield"}
 ```
 
 Notes:

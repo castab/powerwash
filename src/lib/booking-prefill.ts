@@ -18,6 +18,9 @@ const bookingFormPrefillSchema = z.object({
   color: z.string().trim().default(""),
   licensePlate: z.string().trim().default(""),
   notes: z.string().trim().default(""),
+  // Optional so existing prefill JSON keeps working; fills the service-address
+  // field as a manual (unvalidated) entry.
+  address: z.string().trim().default(""),
 });
 
 export type BookingFormPrefill = z.infer<typeof bookingFormPrefillSchema>;
@@ -39,6 +42,7 @@ export const emptyBookingFormPrefill: BookingFormPrefill = {
   color: "",
   licensePlate: "",
   notes: "",
+  address: "",
 };
 
 export function applyBookingFormPrefill(

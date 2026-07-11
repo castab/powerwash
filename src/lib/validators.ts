@@ -17,6 +17,14 @@ const moneySchema = z
     message: "Amount must be zero or greater.",
   });
 
+// Empty form inputs post as "" — treat those as absent before coercing.
+function optionalCoordinate(bound: number) {
+  return z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.coerce.number().min(-bound).max(bound).optional(),
+  );
+}
+
 export const bookingSchema = z.object({
   serviceId: z.string().min(1, "Select a service."),
   date: z.string().min(1, "Choose a date."),
@@ -34,6 +42,22 @@ export const bookingSchema = z.object({
   color: z.string().optional(),
   licensePlate: z.string().optional(),
   notes: z.string().max(500).optional(),
+  address: z.string().trim().min(5, "Enter the service address."),
+  addressPlaceId: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .transform((value) => value || undefined),
+  addressLat: optionalCoordinate(90),
+  addressLng: optionalCoordinate(180),
+  // Raw Places addressComponents as a JSON string; parsed defensively server-side.
+  addressComponents: z
+    .string()
+    .max(8000)
+    .optional()
+    .transform((value) => value || undefined),
+  addressValidated: z.preprocess((value) => value === "true" || value === true, z.boolean()),
 });
 
 export const adminLoginSchema = z.object({

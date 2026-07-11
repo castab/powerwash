@@ -23,6 +23,24 @@ type TimePeriod = "morning" | "afternoon";
 type BookingFormValues = BookingFormPrefill;
 type FieldErrors = Partial<Record<keyof BookingFormValues | "time", string>>;
 
+// Places metadata for the service address. Cleared whenever the customer edits
+// the address text, so stale coordinates never accompany a changed address.
+type AddressMeta = {
+  placeId: string;
+  lat: string;
+  lng: string;
+  componentsJson: string;
+  validated: boolean;
+};
+
+const emptyAddressMeta: AddressMeta = {
+  placeId: "",
+  lat: "",
+  lng: "",
+  componentsJson: "",
+  validated: false,
+};
+
 export type BookingFormService = {
   id: string;
   name: string;
@@ -72,8 +90,19 @@ export function BookingForm({
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
   const [values, setValues] = useState<BookingFormValues>(emptyBookingFormPrefill);
+  const [addressMeta, setAddressMeta] = useState<AddressMeta>(emptyAddressMeta);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [state, formAction] = useActionState(createBookingCheckoutAction, initialState);
+
+  // Address rejections from the server land the customer back on the address
+  // field instead of leaving the error stranded on the review step.
+  useEffect(() => {
+    if (state.status === "error" && state.code) {
+      setCurrentStep(0);
+      setFieldErrors({ address: state.message });
+      requestAnimationFrame(() => stepHeadingRef.current?.focus());
+    }
+  }, [state]);
 
   const selectedService = services.find((service) => service.id === selectedServiceId);
   const selectedSlot = slots.find((slot) => slot.startAt === selectedStartAt);
@@ -139,6 +168,10 @@ export function BookingForm({
   function validateStep(step: StepIndex) {
     const errors: FieldErrors = {};
 
+    if (step === 0 && values.address.trim().length < 5) {
+      errors.address = "Enter the service address.";
+    }
+
     if (step === 1 && !selectedStartAt) {
       errors.time = "Choose an available time.";
     }
@@ -185,6 +218,11 @@ export function BookingForm({
       {Object.entries(values).map(([name, value]) => (
         <input key={name} name={name} type="hidden" value={value} />
       ))}
+      <input name="addressPlaceId" type="hidden" value={addressMeta.placeId} />
+      <input name="addressLat" type="hidden" value={addressMeta.lat} />
+      <input name="addressLng" type="hidden" value={addressMeta.lng} />
+      <input name="addressComponents" type="hidden" value={addressMeta.componentsJson} />
+      <input name="addressValidated" type="hidden" value={addressMeta.validated ? "true" : "false"} />
 
       <div>
         <p className="eyebrow">Reserve with deposit only</p>
@@ -268,6 +306,27 @@ export function BookingForm({
                 </p>
               </div>
             ) : null}
+
+            <label className="stack gap-2 max-w-xl">
+              <span className="text-sm font-medium">Service address</span>
+              <input
+                aria-describedby={fieldErrors.address ? "address-error" : "address-hint"}
+                autoComplete="street-address"
+                className="field"
+                onChange={(event) => {
+                  updateValue("address", event.target.value);
+                  setAddressMeta(emptyAddressMeta);
+                }}
+                placeholder="1234 Main St, Springfield"
+                value={values.address}
+              />
+              <span className="text-sm text-muted" id="address-hint">
+                We come to you — this is where we&apos;ll service your vehicle.
+              </span>
+              <span id="address-error">
+                <ErrorMessage>{fieldErrors.address}</ErrorMessage>
+              </span>
+            </label>
           </div>
         ) : null}
 
@@ -376,6 +435,7 @@ export function BookingForm({
                   className="button-dev"
                   onClick={() => {
                     setValues((current) => applyBookingFormPrefill(current, devPrefill));
+                    setAddressMeta(emptyAddressMeta);
                     setFieldErrors({});
                   }}
                   type="button"
@@ -463,6 +523,7 @@ export function BookingForm({
                   <p className="text-sm font-semibold">Service</p>
                   <p className="mt-2 text-sm text-muted">{selectedService?.name}</p>
                   <p className="text-sm text-muted">Approximately {selectedService?.durationMinutes} minutes</p>
+                  <p className="text-sm text-muted">At {values.address}</p>
                 </div>
                 <button className="text-sm font-semibold text-brand-strong" onClick={() => goToStep(0)} type="button">Edit</button>
               </div>

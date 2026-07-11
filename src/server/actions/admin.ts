@@ -14,7 +14,7 @@ import { createAdminSession, hashPassword, requireAdmin, verifyPassword } from "
 import { findOverlappingActiveBooking } from "@/lib/booking";
 import { isImmutableBookingState } from "@/lib/booking-state";
 import { sendBalancePaymentRequest } from "@/lib/balance-payment";
-import { getArchivedCustomerAccessEndsAt, getManagementUrlForBooking } from "@/lib/booking-management";
+import { getArchivedCustomerAccessEndsAt, getManagementUrlForCustomer } from "@/lib/booking-management";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { sendCancellationOutcomeEmail } from "@/lib/booking-management";
 import { getEnv } from "@/lib/env";
@@ -466,7 +466,7 @@ export async function updateBookingAction(
 
       if (conflict) {
         return {
-          error: `That time overlaps ${conflict.firstName} ${conflict.lastName}'s ${
+          error: `That time overlaps ${conflict.customer.firstName} ${conflict.customer.lastName}'s ${
             conflict.service.name
           } booking at ${formatBusinessDateTimeLong(conflict.startAt)}. The booking was not changed.`,
         };
@@ -551,7 +551,7 @@ export async function requestBookingBalanceAction(
 
   const booking = await prisma.booking.findUnique({
     where: { id: parsed.data.bookingId },
-    include: { service: true },
+    include: { service: true, customer: true },
   });
 
   if (!booking) {
@@ -583,7 +583,7 @@ export async function requestBookingBalanceAction(
   const nextVersion = booking.balanceRequestVersion + 1;
   const env = getEnv();
   const appOrigin = await getRequestOrigin(env.appUrl);
-  const manageUrl = getManagementUrlForBooking(booking);
+  const manageUrl = getManagementUrlForCustomer(booking.customer);
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.create(
     {
@@ -591,7 +591,7 @@ export async function requestBookingBalanceAction(
       // Instant methods only, matching the deposit checkout — deferred methods
       // would leave the balance unsettled for days.
       payment_method_types: ["card"],
-      customer_email: booking.email,
+      customer_email: booking.customer.email,
       metadata: {
         bookingId: booking.id,
         checkoutPurpose: "balance",

@@ -2,7 +2,7 @@ import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/g
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
-import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
+import { createBookingEvent, serializeEventState } from "@/lib/booking-events";
 import { createManageToken, verifyManageToken, type ManageTokenPayload } from "@/lib/manage-token";
 import { shouldSendDepositRecoveryEmail } from "@/lib/stripe-reconciliation-decisions";
 import { formatCurrency } from "@/lib/utils";
@@ -12,11 +12,36 @@ const ARCHIVED_CUSTOMER_ACCESS_MONTHS = 18;
 
 const bookingManagementInclude = {
   service: true,
+  customer: true,
+  vehicle: true,
+  serviceAddress: true,
 } satisfies Prisma.BookingInclude;
 
 export type ManagedBooking = Prisma.BookingGetPayload<{
   include: typeof bookingManagementInclude;
 }>;
+
+// The manage token is customer-scoped: one link opens every non-archived
+// booking the customer has. Archived bookings are simply not listed.
+const managedCustomerInclude = {
+  bookings: {
+    where: { archivedAt: null },
+    include: { service: true, vehicle: true, serviceAddress: true },
+    orderBy: { startAt: "desc" as const },
+  },
+} satisfies Prisma.CustomerInclude;
+
+export type ManagedCustomer = Prisma.CustomerGetPayload<{
+  include: typeof managedCustomerInclude;
+}>;
+
+export type ManagedCustomerBooking = ManagedCustomer["bookings"][number];
+
+type ManageTokenCustomer = {
+  id: string;
+  manageTokenVersion: number;
+  manageTokenRotatedAt: Date | null;
+};
 
 function addMonths(date: Date, months: number) {
   const next = new Date(date);
@@ -31,11 +56,11 @@ function formatBookingDateTime(date: Date) {
   }).format(date);
 }
 
-function getManagePayloadForBooking(booking: Pick<ManagedBooking, "id" | "manageTokenVersion" | "manageTokenRotatedAt">): ManageTokenPayload {
+function getManagePayloadForCustomer(customer: ManageTokenCustomer): ManageTokenPayload {
   return {
-    bookingId: booking.id,
-    version: booking.manageTokenVersion,
-    rotatedAt: booking.manageTokenRotatedAt?.getTime() ?? 0,
+    customerId: customer.id,
+    version: customer.manageTokenVersion,
+    rotatedAt: customer.manageTokenRotatedAt?.getTime() ?? 0,
   };
 }
 
@@ -46,20 +71,16 @@ export function getManagementUrl(token: string) {
   return url.toString();
 }
 
-export function getManagementTokenForBooking(
-  booking: Pick<ManagedBooking, "id" | "manageTokenVersion" | "manageTokenRotatedAt">,
-) {
-  if (booking.manageTokenVersion < 1 || !booking.manageTokenRotatedAt) {
+export function getManagementTokenForCustomer(customer: ManageTokenCustomer) {
+  if (customer.manageTokenVersion < 1 || !customer.manageTokenRotatedAt) {
     return null;
   }
 
-  return createManageToken(getManagePayloadForBooking(booking), getEnv().manageLinkSecret);
+  return createManageToken(getManagePayloadForCustomer(customer), getEnv().manageLinkSecret);
 }
 
-export function getManagementUrlForBooking(
-  booking: Pick<ManagedBooking, "id" | "manageTokenVersion" | "manageTokenRotatedAt">,
-) {
-  const token = getManagementTokenForBooking(booking);
+export function getManagementUrlForCustomer(customer: ManageTokenCustomer) {
+  const token = getManagementTokenForCustomer(customer);
   return token ? getManagementUrl(token) : null;
 }
 
@@ -74,23 +95,15 @@ export function canAutoRefundBooking(startAt: Date, now = new Date()) {
   return startAt.getTime() - now.getTime() >= AUTO_REFUND_WINDOW_HOURS * 60 * 60 * 1000;
 }
 
+// Retention bookkeeping stamped by the admin archive action. Archived bookings
+// are no longer reachable from customer links (they are excluded from the
+// managed-customer listing), so this no longer gates token verification.
 export function getArchivedCustomerAccessEndsAt(archivedAt: Date) {
   return addMonths(archivedAt, ARCHIVED_CUSTOMER_ACCESS_MONTHS);
 }
 
-export function isArchivedCustomerAccessExpired(
-  booking: Pick<ManagedBooking, "archivedAt" | "customerAccessEndsAt">,
-  now = new Date(),
-) {
-  return Boolean(
-    booking.archivedAt &&
-      booking.customerAccessEndsAt &&
-      booking.customerAccessEndsAt.getTime() <= now.getTime(),
-  );
-}
-
 export function getBookingManagementMessageCode(
-  booking: Pick<ManagedBooking, "status" | "paymentStatus" | "startAt">,
+  booking: { status: BookingStatus; paymentStatus: PaymentStatus; startAt: Date },
 ) {
   if (booking.status === BookingStatus.CANCELLED) {
     return booking.paymentStatus === PaymentStatus.REFUNDED
@@ -109,27 +122,23 @@ export function getBookingManagementMessageCode(
   return canAutoRefundBooking(booking.startAt) ? "auto_refund_available" : "manual_refund_only";
 }
 
-export async function getManagedBookingByToken(token: string) {
+export async function getManagedCustomerByToken(token: string): Promise<ManagedCustomer | null> {
   const payload = verifyManageToken(token, getEnv().manageLinkSecret);
 
   if (!payload) {
     return null;
   }
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: payload.bookingId },
-    include: bookingManagementInclude,
+  const customer = await prisma.customer.findUnique({
+    where: { id: payload.customerId },
+    include: managedCustomerInclude,
   });
 
-  if (!booking || booking.manageTokenVersion < 1 || !booking.manageTokenRotatedAt) {
+  if (!customer || customer.manageTokenVersion < 1 || !customer.manageTokenRotatedAt) {
     return null;
   }
 
-  if (isArchivedCustomerAccessExpired(booking)) {
-    return null;
-  }
-
-  const currentPayload = getManagePayloadForBooking(booking);
+  const currentPayload = getManagePayloadForCustomer(customer);
 
   if (
     currentPayload.version !== payload.version ||
@@ -138,7 +147,7 @@ export async function getManagedBookingByToken(token: string) {
     return null;
   }
 
-  return booking;
+  return customer;
 }
 
 function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
@@ -152,13 +161,13 @@ function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
   return {
     subject: `Manage your ${booking.service.name} booking`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `Your ${booking.service.name} booking for ${serviceDate} is confirmed.`,
       `Deposit paid: ${formatCurrency(booking.depositAmount)}`,
       balanceCopy,
       "",
-      "Use the secure link below to view or cancel your booking:",
+      "Use the secure link below to view or cancel any of your bookings:",
       manageUrl,
       "",
       "Cancellations made at least 24 hours before the appointment receive an automatic refund of the deposit.",
@@ -166,10 +175,10 @@ function buildManageEmail(booking: ManagedBooking, manageUrl: string) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> is confirmed.</p>
         <p>Deposit paid: <strong>${formatCurrency(booking.depositAmount)}</strong><br />${balanceCopy}</p>
-        <p>Use the secure link below to view or cancel your booking:</p>
+        <p>Use the secure link below to view or cancel any of your bookings:</p>
         <p><a href="${manageUrl}">${manageUrl}</a></p>
         <p>Cancellations made at least 24 hours before the appointment receive an automatic refund of the deposit.</p>
         <p>Cancellations inside 24 hours are not automatically refunded. ${supportCopy}</p>
@@ -184,7 +193,7 @@ function buildRefundedCancellationEmail(booking: ManagedBooking) {
   return {
     subject: `Your ${booking.service.name} booking was canceled`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `Your ${booking.service.name} booking for ${serviceDate} has been canceled.`,
       `Stripe has been asked to refund your deposit of ${formatCurrency(booking.refundAmount ?? booking.depositAmount)}.`,
@@ -194,7 +203,7 @@ function buildRefundedCancellationEmail(booking: ManagedBooking) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> has been canceled.</p>
         <p>Stripe has been asked to refund your deposit of <strong>${formatCurrency(booking.refundAmount ?? booking.depositAmount)}</strong>.</p>
         <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
@@ -210,7 +219,7 @@ function buildAdminRefundedCancellationEmail(booking: ManagedBooking) {
   return {
     subject: `Your ${booking.service.name} deposit refund was issued`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `The deposit refund for your canceled ${booking.service.name} booking on ${serviceDate} has been issued.`,
       `Refund amount: ${formatCurrency(booking.refundAmount ?? booking.depositAmount)}`,
@@ -220,7 +229,7 @@ function buildAdminRefundedCancellationEmail(booking: ManagedBooking) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>The deposit refund for your canceled <strong>${booking.service.name}</strong> booking on <strong>${serviceDate}</strong> has been issued.</p>
         <p>Refund amount: <strong>${formatCurrency(booking.refundAmount ?? booking.depositAmount)}</strong></p>
         <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
@@ -236,7 +245,7 @@ function buildAdminCancelledRefundedEmail(booking: ManagedBooking) {
   return {
     subject: `Your ${booking.service.name} booking was administratively canceled`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `Your ${booking.service.name} booking for ${serviceDate} was administratively canceled.`,
       `Your deposit refund of ${formatCurrency(booking.refundAmount ?? booking.depositAmount)} has been issued.`,
@@ -246,7 +255,7 @@ function buildAdminCancelledRefundedEmail(booking: ManagedBooking) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> was administratively canceled.</p>
         <p>Your deposit refund of <strong>${formatCurrency(booking.refundAmount ?? booking.depositAmount)}</strong> has been issued.</p>
         <p>Depending on your bank, it may take a few business days for the refund to appear.</p>
@@ -262,7 +271,7 @@ function buildAdminFullRefundEmail(booking: ManagedBooking) {
   return {
     subject: `Your ${booking.service.name} booking was fully refunded`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `A full refund has been issued for your ${booking.service.name} booking on ${serviceDate}.`,
       `Refund amount: ${formatCurrency(booking.refundAmount ?? booking.totalPrice)}`,
@@ -273,7 +282,7 @@ function buildAdminFullRefundEmail(booking: ManagedBooking) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>A full refund has been issued for your <strong>${booking.service.name}</strong> booking on <strong>${serviceDate}</strong>.</p>
         <p>Refund amount: <strong>${formatCurrency(booking.refundAmount ?? booking.totalPrice)}</strong></p>
         <p>This includes your deposit and remaining balance payment.</p>
@@ -294,7 +303,7 @@ function buildManualCancellationEmail(booking: ManagedBooking) {
   return {
     subject: `Your ${booking.service.name} booking was canceled`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `Your ${booking.service.name} booking for ${serviceDate} has been canceled.`,
       "Because the cancellation happened inside 24 hours of the appointment, no automatic refund was issued.",
@@ -302,7 +311,7 @@ function buildManualCancellationEmail(booking: ManagedBooking) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> has been canceled.</p>
         <p>Because the cancellation happened inside 24 hours of the appointment, no automatic refund was issued.</p>
         <p>${supportLine}</p>
@@ -311,94 +320,135 @@ function buildManualCancellationEmail(booking: ManagedBooking) {
   };
 }
 
-async function setManageTokenState(
-  bookingId: string,
-  tokenVersion: number,
-  eventType: BookingEventType,
-) {
-  const before = await prisma.booking.findUnique({
-    where: { id: bookingId },
-  });
+// Fresh-link email for customer-level rotation (resend). Unlike the initial
+// manage email it is not tied to one booking's confirmation details.
+function buildRotatedLinkEmail(customer: { firstName: string }, manageUrl: string) {
+  const supportCopy = getSupportCopy();
 
-  if (!before) {
-    throw new Error("Booking not found.");
-  }
-
-  const updated = await prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      manageTokenVersion: tokenVersion,
-      manageTokenRotatedAt: new Date(),
-    },
-    include: bookingManagementInclude,
-  });
-
-  await createBookingEvent({
-    bookingId: updated.id,
-    type: eventType,
-    actorLabel: "system",
-    beforeState: pickBookingEventState(before),
-    afterState: pickBookingEventState(updated),
-  });
-
-  return updated;
+  return {
+    subject: "Your new booking management link",
+    text: [
+      `Hi ${customer.firstName},`,
+      "",
+      "Here is your new secure link to view or cancel any of your bookings:",
+      manageUrl,
+      "",
+      "Older management links no longer work.",
+      supportCopy,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
+        <p>Hi ${customer.firstName},</p>
+        <p>Here is your new secure link to view or cancel any of your bookings:</p>
+        <p><a href="${manageUrl}">${manageUrl}</a></p>
+        <p>Older management links no longer work.</p>
+        <p>${supportCopy}</p>
+      </div>
+    `,
+  };
 }
 
-export async function rotateAndSendManageBookingEmail(bookingId: string) {
-  const current = await prisma.booking.findUnique({
-    where: { id: bookingId },
+// First-send initialization of the customer's token state. Never rotates: a new
+// booking must not invalidate links the customer already received. Race-safe —
+// concurrent reconcilers both land on version 1 via the guarded updateMany.
+async function initializeCustomerManageToken(customerId: string, triggeredByBookingId: string) {
+  const claimed = await prisma.customer.updateMany({
+    where: { id: customerId, manageTokenVersion: 0 },
+    data: { manageTokenVersion: 1, manageTokenRotatedAt: new Date() },
+  });
+
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+  });
+
+  if (!customer) {
+    throw new Error("Customer not found.");
+  }
+
+  if (claimed.count > 0) {
+    await createBookingEvent({
+      bookingId: triggeredByBookingId,
+      type: BookingEventType.MANAGE_LINK_ISSUED,
+      actorLabel: "system",
+      afterState: serializeEventState({ manageTokenVersion: customer.manageTokenVersion }),
+    });
+  }
+
+  return customer;
+}
+
+// Rotates the customer's token (invalidating every outstanding link for that
+// customer) and emails the fresh link. The rotation event is logged on the
+// triggering booking when known, else on the customer's latest active booking.
+export async function rotateAndSendManageCustomerEmail(
+  customerId: string,
+  options?: { triggeredByBookingId?: string },
+) {
+  const current = await prisma.customer.findUnique({
+    where: { id: customerId },
   });
 
   if (!current) {
-    throw new Error("Booking not found.");
+    throw new Error("Customer not found.");
   }
 
-  const nextVersion = Math.max(current.manageTokenVersion, 0) + 1;
-  const booking = await setManageTokenState(bookingId, nextVersion, BookingEventType.MANAGE_LINK_ROTATED);
-  const manageUrl = getManagementUrlForBooking(booking);
+  const customer = await prisma.customer.update({
+    where: { id: customerId },
+    data: {
+      manageTokenVersion: Math.max(current.manageTokenVersion, 0) + 1,
+      manageTokenRotatedAt: new Date(),
+    },
+  });
+
+  const eventBookingId =
+    options?.triggeredByBookingId ??
+    (
+      await prisma.booking.findFirst({
+        where: { customerId, archivedAt: null },
+        orderBy: { startAt: "desc" },
+        select: { id: true },
+      })
+    )?.id;
+
+  if (eventBookingId) {
+    await createBookingEvent({
+      bookingId: eventBookingId,
+      type: BookingEventType.MANAGE_LINK_ROTATED,
+      actorLabel: "system",
+      beforeState: serializeEventState({ manageTokenVersion: current.manageTokenVersion }),
+      afterState: serializeEventState({ manageTokenVersion: customer.manageTokenVersion }),
+    });
+  }
+
+  const manageUrl = getManagementUrlForCustomer(customer);
 
   if (!manageUrl) {
     throw new Error("Unable to generate management link.");
   }
 
-  const email = buildManageEmail(booking, manageUrl);
+  const email = buildRotatedLinkEmail(customer, manageUrl);
   await sendEmail({
-    to: booking.email,
+    to: customer.email,
     subject: email.subject,
     html: email.html,
     text: email.text,
   });
 
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: {
-      manageLinkSentAt: new Date(),
-    },
-  });
-
-  return getManagementTokenForBooking(booking);
+  return getManagementTokenForCustomer(customer);
 }
 
 export async function ensureInitialManageBookingEmail(bookingId: string) {
-  const current = await prisma.booking.findUnique({
+  const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: bookingManagementInclude,
   });
 
-  if (!current) {
+  if (!booking) {
     throw new Error("Booking not found.");
   }
 
-  if (current.manageLinkSentAt && current.manageTokenVersion > 0 && current.manageTokenRotatedAt) {
-    return getManagementTokenForBooking(current);
-  }
-
-  const booking =
-    current.manageTokenVersion > 0 && current.manageTokenRotatedAt
-      ? current
-      : await setManageTokenState(bookingId, 1, BookingEventType.MANAGE_LINK_ISSUED);
-
-  const manageUrl = getManagementUrlForBooking(booking);
+  const customer = await initializeCustomerManageToken(booking.customerId, booking.id);
+  const manageUrl = getManagementUrlForCustomer(customer);
 
   if (!manageUrl) {
     throw new Error("Unable to generate management link.");
@@ -407,6 +457,7 @@ export async function ensureInitialManageBookingEmail(bookingId: string) {
   // Claim the send atomically before delivering the email. Reconciliation can run
   // concurrently (Stripe webhook + confirmation-page fallback, or a webhook retry
   // racing a slow first send); claiming ensures only one caller sends the email.
+  // The claim stays per booking: each confirmed booking gets its own email.
   const claim = await prisma.booking.updateMany({
     where: { id: booking.id, manageLinkSentAt: null },
     data: { manageLinkSentAt: new Date() },
@@ -414,14 +465,14 @@ export async function ensureInitialManageBookingEmail(bookingId: string) {
 
   if (claim.count === 0) {
     // Another concurrent reconciliation already claimed (or completed) the send.
-    return getManagementTokenForBooking(booking);
+    return getManagementTokenForCustomer(customer);
   }
 
   const email = buildManageEmail(booking, manageUrl);
 
   try {
     await sendEmail({
-      to: booking.email,
+      to: booking.customer.email,
       subject: email.subject,
       html: email.html,
       text: email.text,
@@ -435,7 +486,7 @@ export async function ensureInitialManageBookingEmail(bookingId: string) {
     throw error;
   }
 
-  return getManagementTokenForBooking(booking);
+  return getManagementTokenForCustomer(customer);
 }
 
 function buildDepositRecoveryEmail(booking: ManagedBooking) {
@@ -450,7 +501,7 @@ function buildDepositRecoveryEmail(booking: ManagedBooking) {
   return {
     subject: `Your ${booking.service.name} booking wasn't completed`,
     text: [
-      `Hi ${booking.firstName},`,
+      `Hi ${booking.customer.firstName},`,
       "",
       `Your ${booking.service.name} booking for ${serviceDate} wasn't completed because the deposit payment didn't go through in time, so the time slot has been released.`,
       "No charge was made.",
@@ -462,7 +513,7 @@ function buildDepositRecoveryEmail(booking: ManagedBooking) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937">
-        <p>Hi ${booking.firstName},</p>
+        <p>Hi ${booking.customer.firstName},</p>
         <p>Your <strong>${booking.service.name}</strong> booking for <strong>${serviceDate}</strong> wasn't completed because the deposit payment didn't go through in time, so the time slot has been released.</p>
         <p><strong>No charge was made.</strong></p>
         <p>You can pick a new time here:</p>
@@ -505,7 +556,7 @@ export async function ensureDepositRecoveryEmail(bookingId: string, actorLabel =
 
   try {
     await sendEmail({
-      to: booking.email,
+      to: booking.customer.email,
       subject: email.subject,
       html: email.html,
       text: email.text,
@@ -565,7 +616,7 @@ export async function sendCancellationOutcomeEmail(
   }
 
   await sendEmail({
-    to: booking.email,
+    to: booking.customer.email,
     subject: email.subject,
     html: email.html,
     text: email.text,
