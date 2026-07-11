@@ -17,6 +17,12 @@ import { getStripe } from "@/lib/stripe";
 import { bookingSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
 import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit";
+import {
+  checkServiceEligibility,
+  findFreshEligibleAddressMemo,
+  getBusinessSettings,
+  isServiceAreaConfigured,
+} from "@/lib/service-area";
 import { getClientIp } from "@/lib/request-ip";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { formatCurrency, toStripeCents } from "@/lib/utils";
@@ -265,6 +271,74 @@ export async function createBookingCheckoutAction(
     };
   }
 
+  // Service-area gate. Runs before the DB hold and the Stripe session so an
+  // out-of-area customer is turned away before any money or slot is involved.
+  // Policy: unconfigured settings skip the check (first-run friendly); a
+  // Routes API failure blocks with a retry message (never admit unverified
+  // addresses); a fresh per-address memo skips the paid Routes call entirely.
+  let eligibility: { travelDurationSeconds: number; checkedAt: Date } | null = null;
+
+  const settings = await getBusinessSettings();
+
+  if (!isServiceAreaConfigured(settings)) {
+    console.warn("Service area is not configured; skipping the travel-time check for this booking.");
+  } else {
+    const memo = await findFreshEligibleAddressMemo({
+      email: parsed.data.email,
+      address: parsed.data.address,
+      placeId: parsed.data.addressPlaceId,
+    });
+
+    if (memo && memo.travelDurationSeconds !== null && memo.eligibilityCheckedAt !== null) {
+      eligibility = {
+        travelDurationSeconds: memo.travelDurationSeconds,
+        checkedAt: memo.eligibilityCheckedAt,
+      };
+    } else {
+      const decision = await checkServiceEligibility({
+        address: parsed.data.address,
+        placeId: parsed.data.addressPlaceId,
+        lat: parsed.data.addressLat,
+        lng: parsed.data.addressLng,
+      });
+
+      if (decision.status === "ineligible") {
+        return {
+          status: "error",
+          code: "out_of_area",
+          message:
+            "Unfortunately, that address is outside our current service area, so we aren't able to book this appointment. We're sorry we can't come to you this time!",
+        };
+      }
+
+      if (decision.status === "address_not_found") {
+        return {
+          status: "error",
+          code: "address_not_found",
+          message: "We couldn't find that address. Please double-check it and try again.",
+        };
+      }
+
+      if (decision.status === "unavailable") {
+        return {
+          status: "error",
+          code: "service_area_unavailable",
+          message:
+            "We couldn't verify your service address just now. Please try again in a minute — your appointment time hasn't been taken.",
+        };
+      }
+
+      if (decision.status === "eligible") {
+        eligibility = {
+          travelDurationSeconds: decision.travelDurationSeconds,
+          checkedAt: new Date(),
+        };
+      }
+      // "unconfigured" here means the settings were cleared mid-request; treat
+      // it the same as the skip path above.
+    }
+  }
+
   let heldBookingId: string | null = null;
 
   try {
@@ -276,7 +350,7 @@ export async function createBookingCheckoutAction(
       addressComponents: parseAddressComponents(parsed.data.addressComponents),
       startAtIso: parsed.data.startAt,
       startAt,
-      eligibility: null,
+      eligibility,
     });
     heldBookingId = booking.id;
 

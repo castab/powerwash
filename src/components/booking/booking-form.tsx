@@ -41,6 +41,19 @@ const emptyAddressMeta: AddressMeta = {
   validated: false,
 };
 
+// Early serviceability feedback from /api/service-area. Advisory only — the
+// booking server action re-runs the authoritative check at submit time.
+type ServiceAreaFeedback = {
+  status: "unknown" | "eligible" | "ineligible";
+  travelMinutes?: number;
+  forAddress: string;
+};
+
+const unknownServiceArea: ServiceAreaFeedback = { status: "unknown", forAddress: "" };
+
+const OUT_OF_AREA_MESSAGE =
+  "Unfortunately, that address is outside our current service area, so we aren't able to book this appointment. We're sorry we can't come to you this time!";
+
 export type BookingFormService = {
   id: string;
   name: string;
@@ -91,6 +104,7 @@ export function BookingForm({
   const [availabilityError, setAvailabilityError] = useState("");
   const [values, setValues] = useState<BookingFormValues>(emptyBookingFormPrefill);
   const [addressMeta, setAddressMeta] = useState<AddressMeta>(emptyAddressMeta);
+  const [serviceArea, setServiceArea] = useState<ServiceAreaFeedback>(unknownServiceArea);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [state, formAction] = useActionState(createBookingCheckoutAction, initialState);
 
@@ -157,6 +171,69 @@ export function BookingForm({
     };
   }, [selectedDate, selectedServiceId]);
 
+  // Pre-check the service area once the customer picks a verified suggestion.
+  // Manual entries skip this (no placeId) so half-typed addresses never spend
+  // Routes API calls; the server gate still decides at submit.
+  useEffect(() => {
+    if (!addressMeta.validated || !addressMeta.placeId) {
+      setServiceArea(unknownServiceArea);
+      return;
+    }
+
+    const checkedAddress = values.address.trim();
+    let isCancelled = false;
+
+    async function checkServiceArea() {
+      try {
+        const response = await fetch("/api/service-area", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: checkedAddress,
+            placeId: addressMeta.placeId,
+            lat: addressMeta.lat ? Number(addressMeta.lat) : undefined,
+            lng: addressMeta.lng ? Number(addressMeta.lng) : undefined,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Service area pre-check failed.");
+        }
+
+        const data = (await response.json()) as {
+          status: string;
+          travelMinutes?: number;
+        };
+
+        if (isCancelled) return;
+
+        if (data.status === "eligible" || data.status === "ineligible") {
+          setServiceArea({
+            status: data.status,
+            travelMinutes: data.travelMinutes,
+            forAddress: checkedAddress,
+          });
+        } else {
+          setServiceArea(unknownServiceArea);
+        }
+      } catch {
+        // No feedback on failure — the server decides at submit.
+        if (!isCancelled) {
+          setServiceArea(unknownServiceArea);
+        }
+      }
+    }
+
+    void checkServiceArea();
+
+    return () => {
+      isCancelled = true;
+    };
+    // values.address is intentionally omitted: edits clear addressMeta, which
+    // re-runs this effect and resets the feedback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressMeta]);
+
   function updateValue<Key extends keyof BookingFormValues>(
     key: Key,
     value: BookingFormValues[Key],
@@ -170,6 +247,15 @@ export function BookingForm({
 
     if (step === 0 && values.address.trim().length < 5) {
       errors.address = "Enter the service address.";
+    } else if (
+      step === 0 &&
+      serviceArea.status === "ineligible" &&
+      serviceArea.forAddress === values.address.trim()
+    ) {
+      // Early block only when the pre-check verdict still matches the current
+      // address value — the server gate remains authoritative for every other
+      // case (manual entry, stale feedback, pre-check unavailable).
+      errors.address = OUT_OF_AREA_MESSAGE;
     }
 
     if (step === 1 && !selectedStartAt) {
@@ -326,6 +412,21 @@ export function BookingForm({
               <span id="address-error">
                 <ErrorMessage>{fieldErrors.address}</ErrorMessage>
               </span>
+              {!fieldErrors.address &&
+              serviceArea.status !== "unknown" &&
+              serviceArea.forAddress === values.address.trim() ? (
+                <p
+                  className={`text-sm ${serviceArea.status === "eligible" ? "text-emerald-700" : "text-danger"}`}
+                >
+                  {serviceArea.status === "eligible"
+                    ? `Great news — you're in our service area${
+                        serviceArea.travelMinutes !== undefined
+                          ? ` (about ${serviceArea.travelMinutes} min from us)`
+                          : ""
+                      }.`
+                    : OUT_OF_AREA_MESSAGE}
+                </p>
+              ) : null}
             </label>
           </div>
         ) : null}

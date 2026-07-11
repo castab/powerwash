@@ -34,6 +34,9 @@ export const RATE_LIMITS = {
   // 60 confirmation-status polls per minute, per IP — the confirmation page polls
   // every 3s, so this leaves ample headroom for a handful of concurrent tabs.
   confirmationStatus: { limit: 60, windowMs: 60 * 1000 },
+  // 15 service-area pre-checks per minute, per IP. Each cache miss is a paid
+  // Routes API call, so this is deliberately tighter than the availability limit.
+  serviceArea: { limit: 15, windowMs: 60 * 1000 },
 } as const;
 
 // Bound the number of tracked keys so a flood of unique keys cannot grow the map
