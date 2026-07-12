@@ -535,7 +535,7 @@ Railway setup:
 2. Add a PostgreSQL service.
 3. Create the app service from this repo.
 4. In the Railway service settings, deploy using the repo Dockerfile.
-5. Set the required environment variables from the table above.
+5. Set the required environment variables from the table above. `NEXT_PUBLIC_*` vars are inlined into the client bundle at `next build` time, not read at container runtime, so the Dockerfile declares matching `ARG`s that Railway auto-fills from same-named service variables during the build. If a new `NEXT_PUBLIC_*` var is ever added, it needs a corresponding `ARG`/`ENV` pair in the Dockerfile or it will silently build in as empty.
 6. Map `DATABASE_URL` to Railway PostgreSQL `DATABASE_URL`.
 7. Map `DIRECT_URL` to Railway PostgreSQL `DATABASE_PRIVATE_URL` if available, otherwise `DATABASE_URL`.
 8. Trigger the first deploy.
