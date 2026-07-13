@@ -29,11 +29,14 @@ type Mode = "loading" | "ready" | "manual";
 // fully-usable text input. The booking/settings server actions are always
 // the authoritative validator — this component only ever produces a
 // best-effort AddressValue.
+export type AddressAutocompleteMode = Mode;
+
 export function AddressAutocompleteInput({
   id,
   label,
   value,
   onChange,
+  onModeChange,
   error,
   placeholder,
   hint,
@@ -43,6 +46,7 @@ export function AddressAutocompleteInput({
   label: string;
   value: AddressValue;
   onChange: (value: AddressValue) => void;
+  onModeChange?: (mode: Mode) => void;
   error?: string;
   placeholder?: string;
   hint?: string;
@@ -58,9 +62,46 @@ export function AddressAutocompleteInput({
   const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const latestValueRef = useRef(value);
   const listboxId = `${id}-listbox`;
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
+
+  // Mirrors the latest value prop so the one-shot library-load effect can see
+  // what the customer typed while the script was still loading.
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
+
+  // Hosts that gate progress on a verified selection need to know when the
+  // library failed to load (manual mode) so they can surface an outage notice.
+  useEffect(() => {
+    onModeChange?.(mode);
+  }, [mode, onModeChange]);
+
+  async function fetchSuggestions(input: string) {
+    const library = placesLibraryRef.current;
+    if (!library) return;
+
+    try {
+      const { suggestions: results } = await library.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input,
+        sessionToken: sessionTokenRef.current ?? undefined,
+        includedRegionCodes: ["us"],
+      });
+
+      const withPredictions = results.filter((result) => result.placePrediction !== null);
+      setSuggestions(withPredictions);
+      setIsOpen(withPredictions.length > 0);
+      setActiveIndex(-1);
+    } catch {
+      // Suggestion-list fetch failed over the network. Nothing was selected
+      // yet, so this degrades silently to plain manual typing rather than
+      // showing an error for a field the customer hasn't finished entering.
+      setSuggestions([]);
+      setIsOpen(false);
+    }
+  }
 
   useEffect(() => {
     let isCancelled = false;
@@ -71,6 +112,14 @@ export function AddressAutocompleteInput({
         placesLibraryRef.current = library;
         sessionTokenRef.current = new library.AutocompleteSessionToken();
         setMode("ready");
+        // The customer may have typed while the script was still loading —
+        // fetch once now so they see suggestions without having to retype.
+        // Skip values that are already validated (e.g. a pre-populated form)
+        // so the dropdown doesn't pop open unprompted.
+        const typed = latestValueRef.current;
+        if (!typed.validated && typed.formattedAddress.trim().length >= MIN_QUERY_LENGTH) {
+          void fetchSuggestions(typed.formattedAddress);
+        }
       })
       .catch((loadError: unknown) => {
         if (isCancelled) return;
@@ -104,30 +153,6 @@ export function AddressAutocompleteInput({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
-
-  async function fetchSuggestions(input: string) {
-    const library = placesLibraryRef.current;
-    if (!library) return;
-
-    try {
-      const { suggestions: results } = await library.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input,
-        sessionToken: sessionTokenRef.current ?? undefined,
-        includedRegionCodes: ["us"],
-      });
-
-      const withPredictions = results.filter((result) => result.placePrediction !== null);
-      setSuggestions(withPredictions);
-      setIsOpen(withPredictions.length > 0);
-      setActiveIndex(-1);
-    } catch {
-      // Suggestion-list fetch failed over the network. Nothing was selected
-      // yet, so this degrades silently to plain manual typing rather than
-      // showing an error for a field the customer hasn't finished entering.
-      setSuggestions([]);
-      setIsOpen(false);
-    }
-  }
 
   function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
     const text = event.target.value;

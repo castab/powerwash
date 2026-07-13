@@ -43,12 +43,13 @@ export const bookingSchema = z.object({
   licensePlate: z.string().optional(),
   notes: z.string().max(500).optional(),
   address: z.string().trim().min(5, "Enter the service address."),
+  // A verified Places selection is mandatory: without a placeId the service
+  // area cannot be checked reliably and arbitrary text would be persisted.
   addressPlaceId: z
-    .string()
+    .string("Select your address from the suggestions.")
     .trim()
-    .max(500)
-    .optional()
-    .transform((value) => value || undefined),
+    .min(1, "Select your address from the suggestions.")
+    .max(500),
   addressLat: optionalCoordinate(90),
   addressLng: optionalCoordinate(180),
   // Raw Places addressComponents as a JSON string; parsed defensively server-side.
@@ -57,7 +58,10 @@ export const bookingSchema = z.object({
     .max(8000)
     .optional()
     .transform((value) => value || undefined),
-  addressValidated: z.preprocess((value) => value === "true" || value === true, z.boolean()),
+  addressValidated: z.preprocess(
+    (value) => value === "true" || value === true,
+    z.literal(true, "Select your address from the suggestions."),
+  ),
 });
 
 export const adminLoginSchema = z.object({

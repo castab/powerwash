@@ -187,6 +187,23 @@ export function findMatchingAddress<
   );
 }
 
+// Re-booking fast path for canonical address resolution: a validated stored row
+// for this placeId already holds Google's canonical formatted address, so the
+// booking action can skip the Place Details call (createHeldBooking matches the
+// same row by placeId and never rewrites its formattedAddress).
+export async function findValidatedAddressByPlaceId(email: string, placeId: string) {
+  const customer = await prisma.customer.findUnique({
+    where: { email: normalizeCustomerEmail(email) },
+    include: { addresses: true },
+  });
+
+  return (
+    customer?.addresses.find(
+      (address) => address.googlePlaceId === placeId && address.validated,
+    ) ?? null
+  );
+}
+
 export type CreateHeldBookingInput = {
   serviceId: string;
   date: string;

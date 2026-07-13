@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { BookingEventType, BookingStatus, PaymentStatus, type Prisma } from "@/generated/prisma/client";
-import { createHeldBooking, releaseHeldBooking } from "@/lib/booking";
+import { createHeldBooking, findValidatedAddressByPlaceId, releaseHeldBooking } from "@/lib/booking";
+import { fetchPlaceDetails } from "@/lib/google-places";
 import { createBookingEvent, pickBookingEventState } from "@/lib/booking-events";
 import { verifyBookingFormToken } from "@/lib/booking-form-token";
 import { verifyTurnstileToken } from "@/lib/turnstile";
@@ -37,7 +38,7 @@ export type BookingActionState = {
   message: string;
   // Address-related rejections carry a code so the wizard can jump the customer
   // back to the address field instead of leaving the error on the review step.
-  code?: "out_of_area" | "address_not_found" | "service_area_unavailable";
+  code?: "out_of_area" | "address_not_found" | "service_area_unavailable" | "address_not_verified";
 };
 
 // Anti-bot bounds for the signed booking-form token: a booking that reaches the
@@ -303,9 +304,15 @@ export async function createBookingCheckoutAction(
   });
 
   if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    // Address-field failures (missing placeId, unvalidated entry) get a code so
+    // the wizard bounces the customer back to the address step.
+    const isAddressIssue =
+      typeof firstIssue?.path[0] === "string" && firstIssue.path[0].startsWith("address");
     return {
       status: "error",
-      message: parsed.error.issues[0]?.message ?? "Please review the form.",
+      ...(isAddressIssue ? { code: "address_not_verified" as const } : {}),
+      message: firstIssue?.message ?? "Please review the form.",
     };
   }
 
@@ -398,6 +405,53 @@ export async function createBookingCheckoutAction(
     }
   }
 
+  // Canonical address resolution. The client-supplied address text is never
+  // trusted for persistence: a spoofed client could pair a valid in-area
+  // placeId with arbitrary text. Resolve the placeId through Place Details and
+  // persist Google's canonical address instead — unless a validated stored row
+  // for this placeId already holds it (re-booking fast path, no API call).
+  let canonicalAddress = {
+    address: parsed.data.address,
+    lat: parsed.data.addressLat,
+    lng: parsed.data.addressLng,
+    components: parseAddressComponents(parsed.data.addressComponents),
+  };
+
+  const storedCanonical = await findValidatedAddressByPlaceId(
+    parsed.data.email,
+    parsed.data.addressPlaceId,
+  );
+
+  if (!storedCanonical) {
+    const details = await fetchPlaceDetails(parsed.data.addressPlaceId);
+
+    if (details.status === "not_found") {
+      return {
+        status: "error",
+        code: "address_not_found",
+        message: "We couldn't find that address. Please double-check it and try again.",
+      };
+    }
+
+    if (details.status === "error") {
+      // Same policy as the service-area gate: never admit an unverified
+      // address; ask the customer to retry instead.
+      return {
+        status: "error",
+        code: "service_area_unavailable",
+        message:
+          "We couldn't verify your service address just now. Please try again in a minute — your appointment time hasn't been taken.",
+      };
+    }
+
+    canonicalAddress = {
+      address: details.formattedAddress,
+      lat: details.lat,
+      lng: details.lng,
+      components: details.components as Prisma.InputJsonValue | undefined,
+    };
+  }
+
   let heldBookingId: string | null = null;
 
   try {
@@ -406,7 +460,10 @@ export async function createBookingCheckoutAction(
     const startAt = new Date(parsed.data.startAt);
     const booking = await createHeldBooking({
       ...parsed.data,
-      addressComponents: parseAddressComponents(parsed.data.addressComponents),
+      address: canonicalAddress.address,
+      addressLat: canonicalAddress.lat,
+      addressLng: canonicalAddress.lng,
+      addressComponents: canonicalAddress.components,
       startAtIso: parsed.data.startAt,
       startAt,
       eligibility,
