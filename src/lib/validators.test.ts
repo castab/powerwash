@@ -69,8 +69,8 @@ runTest("availabilitySchema rejects a raw null id (guards the coercion, matches 
   assert.equal(parsed.success, false);
 });
 
-// Mirrors what the wizard's hidden inputs post: every field present as a
-// string, optional metadata as "" when the address was typed manually.
+// Mirrors what the wizard's hidden inputs post after a verified Places
+// selection: every field present as a string, metadata populated.
 const validBookingPayload = {
   serviceId: "svc_123",
   date: "2026-07-20",
@@ -84,39 +84,53 @@ const validBookingPayload = {
   licensePlate: "",
   notes: "",
   address: "1234 Main St, Springfield",
-  addressPlaceId: "",
-  addressLat: "",
-  addressLng: "",
-  addressComponents: "",
-  addressValidated: "false",
+  addressPlaceId: "ChIJexample",
+  addressLat: "37.774900",
+  addressLng: "-122.419400",
+  addressComponents: JSON.stringify([{ longText: "1234", types: ["street_number"] }]),
+  addressValidated: "true",
 };
 
-runTest("bookingSchema accepts a manual address entry (no Places metadata)", () => {
+runTest("bookingSchema accepts a validated Places selection", () => {
   const parsed = bookingSchema.safeParse(validBookingPayload);
 
   assert.equal(parsed.success, true);
   assert.equal(parsed.data?.address, "1234 Main St, Springfield");
-  assert.equal(parsed.data?.addressPlaceId, undefined);
-  assert.equal(parsed.data?.addressLat, undefined);
-  assert.equal(parsed.data?.addressLng, undefined);
-  assert.equal(parsed.data?.addressValidated, false);
-});
-
-runTest("bookingSchema accepts a validated Places selection", () => {
-  const parsed = bookingSchema.safeParse({
-    ...validBookingPayload,
-    addressPlaceId: "ChIJexample",
-    addressLat: "37.774900",
-    addressLng: "-122.419400",
-    addressComponents: JSON.stringify([{ longText: "1234", types: ["street_number"] }]),
-    addressValidated: "true",
-  });
-
-  assert.equal(parsed.success, true);
   assert.equal(parsed.data?.addressPlaceId, "ChIJexample");
   assert.equal(parsed.data?.addressLat, 37.7749);
   assert.equal(parsed.data?.addressLng, -122.4194);
   assert.equal(parsed.data?.addressValidated, true);
+});
+
+runTest("bookingSchema rejects a manual address entry (no placeId — hidden inputs post \"\")", () => {
+  const parsed = bookingSchema.safeParse({
+    ...validBookingPayload,
+    addressPlaceId: "",
+    addressLat: "",
+    addressLng: "",
+    addressComponents: "",
+    addressValidated: "false",
+  });
+
+  assert.equal(parsed.success, false);
+});
+
+runTest("bookingSchema rejects a placeId that was not validated (post-selection edit)", () => {
+  const parsed = bookingSchema.safeParse({
+    ...validBookingPayload,
+    addressValidated: "false",
+  });
+
+  assert.equal(parsed.success, false);
+});
+
+runTest("bookingSchema rejects addressValidated=true without a placeId", () => {
+  const parsed = bookingSchema.safeParse({
+    ...validBookingPayload,
+    addressPlaceId: "",
+  });
+
+  assert.equal(parsed.success, false);
 });
 
 runTest("bookingSchema rejects a missing or too-short address", () => {

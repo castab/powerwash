@@ -10,7 +10,11 @@ import {
 import { createBookingCheckoutAction, type BookingActionState } from "@/server/actions/booking";
 import { formatCurrency } from "@/lib/utils";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { AddressAutocompleteInput, type AddressValue } from "@/components/address/address-autocomplete-input";
+import {
+  AddressAutocompleteInput,
+  type AddressAutocompleteMode,
+  type AddressValue,
+} from "@/components/address/address-autocomplete-input";
 import { TurnstileWidget } from "@/components/booking/turnstile-widget";
 
 const initialState: BookingActionState = {
@@ -54,6 +58,12 @@ const unknownServiceArea: ServiceAreaFeedback = { status: "unknown", forAddress:
 
 const OUT_OF_AREA_MESSAGE =
   "Unfortunately, that address is outside our current service area, so we aren't able to book this appointment. We're sorry we can't come to you this time!";
+
+const SELECT_SUGGESTION_MESSAGE =
+  "Please select your address from the suggestions so we can confirm it's in our service area.";
+
+const AUTOCOMPLETE_OUTAGE_MESSAGE =
+  "Online booking is temporarily unavailable because we can't verify service addresses right now. Please try again later, or reach out to us by email and we'll get you scheduled.";
 
 export type BookingFormService = {
   id: string;
@@ -120,6 +130,7 @@ export function BookingForm({
   const [availabilityError, setAvailabilityError] = useState("");
   const [values, setValues] = useState<BookingFormValues>(emptyBookingFormPrefill);
   const [addressMeta, setAddressMeta] = useState<AddressMeta>(emptyAddressMeta);
+  const [addressMode, setAddressMode] = useState<AddressAutocompleteMode>("loading");
   const [serviceArea, setServiceArea] = useState<ServiceAreaFeedback>(unknownServiceArea);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   // Turnstile token for the final submit. Empty until the widget solves; when no
@@ -151,8 +162,19 @@ export function BookingForm({
   const serviceAreaBlocksProgress =
     serviceArea.forAddress === trimmedAddress &&
     (serviceArea.status === "checking" || serviceArea.status === "ineligible");
+  // Address suggestions failed to load — a verified selection is impossible,
+  // so booking is down until Google Places is reachable again.
+  const autocompleteUnavailable = addressMode === "manual";
+  // A verified suggestion (placeId) is mandatory: manual text can't be
+  // confirmed against the service area, and the server rejects it anyway.
   const completedSteps: boolean[] = [
-    Boolean(selectedService && trimmedAddress.length >= 5 && !serviceAreaBlocksProgress),
+    Boolean(
+      selectedService &&
+        addressMeta.validated &&
+        addressMeta.placeId &&
+        !serviceAreaBlocksProgress &&
+        !autocompleteUnavailable,
+    ),
     Boolean(selectedDate && selectedStartAt),
     values.vehicleDescription.trim().length >= 3,
     values.firstName.trim().length >= 2 &&
@@ -309,8 +331,15 @@ export function BookingForm({
   function validateStep(step: StepIndex) {
     const errors: FieldErrors = {};
 
-    if (step === 0 && values.address.trim().length < 5) {
+    if (step === 0 && autocompleteUnavailable) {
+      errors.address = AUTOCOMPLETE_OUTAGE_MESSAGE;
+    } else if (step === 0 && values.address.trim().length < 5) {
       errors.address = "Enter the service address.";
+    } else if (step === 0 && (!addressMeta.validated || !addressMeta.placeId)) {
+      // Manual or edited text carries no placeId, so neither the advisory
+      // pre-check nor the submit-time gate can trust it — require a verified
+      // suggestion before the customer can continue.
+      errors.address = SELECT_SUGGESTION_MESSAGE;
     } else if (
       step === 0 &&
       serviceArea.status === "ineligible" &&
@@ -318,7 +347,7 @@ export function BookingForm({
     ) {
       // Early block only when the pre-check verdict still matches the current
       // address value — the server gate remains authoritative for every other
-      // case (manual entry, stale feedback, pre-check unavailable).
+      // case (stale feedback, pre-check unavailable).
       errors.address = OUT_OF_AREA_MESSAGE;
     }
 
@@ -476,6 +505,15 @@ export function BookingForm({
             ) : null}
 
             <div className="max-w-xl">
+              {autocompleteUnavailable ? (
+                <p
+                  aria-live="polite"
+                  className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                  role="alert"
+                >
+                  {AUTOCOMPLETE_OUTAGE_MESSAGE}
+                </p>
+              ) : null}
               <AddressAutocompleteInput
                 autoComplete="street-address"
                 error={fieldErrors.address}
@@ -483,6 +521,7 @@ export function BookingForm({
                 id="address"
                 label="Service address"
                 onChange={handleAddressChange}
+                onModeChange={setAddressMode}
                 placeholder="1234 Main St, Springfield"
                 value={addressValue}
               />
@@ -496,6 +535,15 @@ export function BookingForm({
                     ? "Great news — you're in our service area."
                     : OUT_OF_AREA_MESSAGE}
                 </p>
+              ) : null}
+              {/* The Continue button is disabled until a suggestion is picked,
+                  so typed-but-unverified text needs visible guidance — there is
+                  no click to hang a validation error on. */}
+              {!fieldErrors.address &&
+              !autocompleteUnavailable &&
+              trimmedAddress.length >= 5 &&
+              (!addressMeta.validated || !addressMeta.placeId) ? (
+                <p className="mt-2 text-sm text-muted">{SELECT_SUGGESTION_MESSAGE}</p>
               ) : null}
             </div>
           </div>
